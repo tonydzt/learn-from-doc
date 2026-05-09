@@ -2,6 +2,7 @@ import { browser } from 'wxt/browser';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { getAdapterForUrl } from '../src/adapters';
 import { pageProgressPercent, totalProgressPercent } from '../src/progress/calculations';
+import { readingMapSegments, viewportMapSegment } from '../src/progress/reading-map';
 import { addViewedRange, mergeRanges, type ViewedRange } from '../src/progress/ranges';
 import { DATA_ATTR, FLUSH_INTERVAL_MS } from '../src/shared/constants';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
@@ -126,6 +127,38 @@ function injectStyles() {
       vertical-align: middle;
       white-space: nowrap;
     }
+    .lfd-reading-map {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      right: 18px;
+      z-index: 2147483646;
+      width: 8px;
+      border-left: 1px solid rgba(15, 23, 42, 0.1);
+      border-right: 1px solid rgba(255, 255, 255, 0.54);
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.015));
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.44), 0 0 18px rgba(15, 23, 42, 0.1);
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .lfd-reading-map-segment {
+      position: absolute;
+      left: 1px;
+      right: 1px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #34d399, #059669);
+      box-shadow: 0 0 10px rgba(5, 150, 105, 0.38);
+    }
+    .lfd-reading-map-viewport {
+      position: absolute;
+      left: -2px;
+      right: -2px;
+      min-height: 10px;
+      border: 1px solid rgba(6, 78, 59, 0.72);
+      border-radius: 999px;
+      background: rgba(236, 253, 245, 0.72);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.78), 0 2px 9px rgba(6, 78, 59, 0.24);
+    }
   `;
   document.documentElement.append(style);
 }
@@ -205,6 +238,48 @@ async function renderProgressUi(siteId: string, snapshot?: ProgressUiSnapshot) {
     badge.textContent = formatPercent(pageProgressPercent(pageByUrl.get(target.url), progressByUrl.get(target.url)));
     if (!existing) target.anchor.append(badge);
   }
+}
+
+function removeReadingMap() {
+  document.querySelector<HTMLElement>('[data-learn-from-doc="reading-map"]')?.remove();
+}
+
+function renderReadingMap(ranges: ViewedRange[], viewportRange: ViewedRange | null, contentHeight: number) {
+  if (!Number.isFinite(contentHeight) || contentHeight <= 0) {
+    removeReadingMap();
+    return;
+  }
+
+  injectStyles();
+
+  let map = document.querySelector<HTMLElement>('[data-learn-from-doc="reading-map"]');
+  if (!map) {
+    map = document.createElement('div');
+    map.className = 'lfd-reading-map';
+    map.setAttribute(DATA_ATTR, 'reading-map');
+    map.setAttribute('aria-hidden', 'true');
+    document.documentElement.append(map);
+  }
+
+  const children: HTMLElement[] = [];
+  for (const segment of readingMapSegments(ranges, contentHeight)) {
+    const element = document.createElement('div');
+    element.className = 'lfd-reading-map-segment';
+    element.style.top = `${segment.top}%`;
+    element.style.height = `${segment.height}%`;
+    children.push(element);
+  }
+
+  const viewport = viewportMapSegment(viewportRange, contentHeight);
+  if (viewport) {
+    const element = document.createElement('div');
+    element.className = 'lfd-reading-map-viewport';
+    element.style.top = `${viewport.top}%`;
+    element.style.height = `${viewport.height}%`;
+    children.push(element);
+  }
+
+  map.replaceChildren(...children);
 }
 
 async function getPageContext(): Promise<PageContextResponse> {
@@ -376,6 +451,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
 
     const range = visibleRange(article);
     if (!range) {
+      renderReadingMap(ranges, null, page.contentHeight);
       lfdTrace('reading sample skipped: article outside viewport', {
         articleRect: article.getBoundingClientRect().toJSON?.() ?? null,
       });
@@ -391,14 +467,19 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
         url: page.url,
       });
     }
+    renderReadingMap(ranges, range, page.contentHeight);
   };
 
   const renderUi = () => renderProgressUi(siteId, uiSnapshot);
+  const renderPageChrome = async () => {
+    await renderUi();
+    renderReadingMap(ranges, visibleRange(article), page.contentHeight);
+  };
   const scheduleRenderUi = () => {
     if (signal.aborted || renderTimer) return;
     renderTimer = globalThis.setTimeout(() => {
       renderTimer = undefined;
-      void renderUi();
+      void renderPageChrome();
     }, 300);
   };
 
@@ -423,14 +504,14 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
         record,
       ],
     };
-    if (render && !signal.aborted) await renderUi();
+    if (render && !signal.aborted) await renderPageChrome();
   };
 
   sample();
   await flush();
   if (signal.aborted) return undefined;
 
-  await renderUi();
+  await renderPageChrome();
 
   window.addEventListener('scroll', sample, { passive: true, signal });
   window.addEventListener('resize', sample, { passive: true, signal });
@@ -448,6 +529,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     if (renderTimer) globalThis.clearTimeout(renderTimer);
     observer.disconnect();
     await flush(false);
+    removeReadingMap();
   };
 }
 
