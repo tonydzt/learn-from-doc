@@ -158,3 +158,18 @@ export async function deleteSiteIndex(siteId: string): Promise<void> {
     progress.forEach((record) => progressStore.delete([siteId, record.url]));
   });
 }
+
+export async function clearSiteProgress(siteId: string): Promise<void> {
+  const progress = await getProgressForSite(siteId);
+  await tx(['progress'], 'readwrite', async ({ progress: progressStore }) => {
+    progress.forEach((record) => progressStore.delete([siteId, record.url]));
+  });
+}
+
+export async function clearAllProgress(): Promise<void> {
+  const sites = await getAllSites();
+  const progressBySite = await Promise.all(sites.map((site) => getProgressForSite(site.siteId)));
+  await tx(['progress'], 'readwrite', async ({ progress }) => {
+    progressBySite.flat().forEach((record) => progress.delete([record.siteId, record.url]));
+  });
+}

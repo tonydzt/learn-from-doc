@@ -5,6 +5,8 @@ import { lfdDebug, lfdTrace } from '../src/shared/logger';
 import type { IndexOverview, IndexPageMeasuredMessage, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../src/shared/messages';
 import { normalizePageUrl, siteIdFor, withIndexingHash } from '../src/shared/url';
 import {
+  clearAllProgress,
+  clearSiteProgress,
   deleteSiteIndex,
   getAllSites,
   getPage,
@@ -17,6 +19,7 @@ import {
   type PageIndexRecord,
   type SiteRecord,
 } from '../src/storage/db';
+import { getAppSettings, saveAppSettings } from '../src/storage/settings';
 
 const INDEX_TIMEOUT_MS = 30000;
 
@@ -232,6 +235,14 @@ export default defineBackground(() => {
     if (message.type === 'GET_PROGRESS_RECORD') return getProgress(message.siteId, message.url);
     if (message.type === 'SAVE_PROGRESS_RECORD') {
       return saveProgress(message.siteId, message.url, message.ranges, message.contentHeight);
+    }
+    if (message.type === 'GET_APP_SETTINGS') return getAppSettings();
+    if (message.type === 'SAVE_APP_SETTINGS') return saveAppSettings(message.settings);
+    if (message.type === 'CLEAR_SITE_PROGRESS') {
+      return clearSiteProgress(message.siteId).then(() => ({ ok: true }));
+    }
+    if (message.type === 'CLEAR_ALL_PROGRESS') {
+      return clearAllProgress().then(() => ({ ok: true }));
     }
     if (message.type === 'DELETE_SITE_INDEX') {
       return deleteSiteIndex(message.siteId).then(() => ({ ok: true }));

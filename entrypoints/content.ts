@@ -4,6 +4,7 @@ import { getAdapterForUrl } from '../src/adapters';
 import { pageProgressPercent, totalProgressPercent } from '../src/progress/calculations';
 import { readingMapSegments, viewportMapSegment } from '../src/progress/reading-map';
 import { addViewedRange, mergeRanges, type ViewedRange } from '../src/progress/ranges';
+import { APP_SETTINGS_STORAGE_KEY, normalizeAppSettings, type AppSettings } from '../src/settings/app-settings';
 import { DATA_ATTR, FLUSH_INTERVAL_MS } from '../src/shared/constants';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
 import type { IndexLinksResponse, PageContextResponse, RuntimeMessage } from '../src/shared/messages';
@@ -36,6 +37,10 @@ function getProgressFromBackground(siteId: string, url: string): Promise<Progres
 
 function saveProgressToBackground(siteId: string, url: string, ranges: ViewedRange[], contentHeight: number): Promise<ProgressRecord> {
   return sendRuntimeMessage<ProgressRecord>({ type: 'SAVE_PROGRESS_RECORD', siteId, url, ranges, contentHeight });
+}
+
+function getAppSettingsFromBackground(): Promise<AppSettings> {
+  return sendRuntimeMessage<AppSettings>({ type: 'GET_APP_SETTINGS' });
 }
 
 type ReadingTrackerStop = () => Promise<void>;
@@ -436,6 +441,9 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     pages: sitePages,
     progress: siteProgress,
   };
+  let settings = await getAppSettingsFromBackground();
+  if (signal.aborted) return undefined;
+
   let ranges = mergeRanges(siteProgress.find((entry) => entry.url === page.url)?.viewedRanges ?? []);
   let dirty = false;
   let renderTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
@@ -451,7 +459,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
 
     const range = visibleRange(article);
     if (!range) {
-      renderReadingMap(ranges, null, page.contentHeight);
+      renderReadingMapIfEnabled(null);
       lfdTrace('reading sample skipped: article outside viewport', {
         articleRect: article.getBoundingClientRect().toJSON?.() ?? null,
       });
@@ -467,13 +475,20 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
         url: page.url,
       });
     }
-    renderReadingMap(ranges, range, page.contentHeight);
+    renderReadingMapIfEnabled(range);
   };
 
   const renderUi = () => renderProgressUi(siteId, uiSnapshot);
+  const renderReadingMapIfEnabled = (range: ViewedRange | null) => {
+    if (!settings.showReadingMap) {
+      removeReadingMap();
+      return;
+    }
+    renderReadingMap(ranges, range, page.contentHeight);
+  };
   const renderPageChrome = async () => {
     await renderUi();
-    renderReadingMap(ranges, visibleRange(article), page.contentHeight);
+    renderReadingMapIfEnabled(visibleRange(article));
   };
   const scheduleRenderUi = () => {
     if (signal.aborted || renderTimer) return;
@@ -520,6 +535,15 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     if (document.visibilityState === 'hidden') void flush();
   }, { signal });
   window.addEventListener('pagehide', () => void flush(false), { signal });
+  const onSettingsChanged = (
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: string,
+  ) => {
+    if (areaName !== 'local' || !changes[APP_SETTINGS_STORAGE_KEY]) return;
+    settings = normalizeAppSettings(changes[APP_SETTINGS_STORAGE_KEY].newValue);
+    renderReadingMapIfEnabled(visibleRange(article));
+  };
+  browser.storage.onChanged.addListener(onSettingsChanged);
 
   const observer = new MutationObserver(scheduleRenderUi);
   observer.observe(document.body, { childList: true, subtree: true });
@@ -528,6 +552,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     globalThis.clearInterval(flushInterval);
     if (renderTimer) globalThis.clearTimeout(renderTimer);
     observer.disconnect();
+    browser.storage.onChanged.removeListener(onSettingsChanged);
     await flush(false);
     removeReadingMap();
   };

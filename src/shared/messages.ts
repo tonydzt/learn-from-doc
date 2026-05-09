@@ -1,4 +1,5 @@
 import type { PageIndexRecord, SiteRecord, ProgressRecord } from '../storage/db';
+import type { AppSettings } from '../settings/app-settings';
 
 export type PageContextResponse = {
   supported: boolean;
@@ -76,6 +77,10 @@ export type RuntimeMessage =
   | { type: 'GET_PROGRESS_RECORD'; siteId: string; url: string }
   | { type: 'SAVE_PROGRESS_RECORD'; siteId: string; url: string; ranges: import('../progress/ranges').ViewedRange[]; contentHeight: number }
   | { type: 'DELETE_SITE_INDEX'; siteId: string }
+  | { type: 'CLEAR_SITE_PROGRESS'; siteId: string }
+  | { type: 'CLEAR_ALL_PROGRESS' }
+  | { type: 'GET_APP_SETTINGS' }
+  | { type: 'SAVE_APP_SETTINGS'; settings: Partial<AppSettings> }
   | { type: 'INDEX_PROGRESS_UPDATED'; siteId: string }
   | IndexDebugStatusMessage
   | IndexRunProgressMessage
