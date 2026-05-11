@@ -2,6 +2,8 @@
 
 这份文档用于在重启新会话后，快速理解当前 Chrome 扩展的目标、架构、约定和实现现状。
 
+如果你主要是后端背景，建议先读 `docs/BACKEND_DEVELOPER_READING_GUIDE.md`，再回到本文看完整细节。
+
 ## 原始需求
 
 目标是做一个 Chrome/Chromium MV3 扩展，用来记录文档站点的阅读进度。

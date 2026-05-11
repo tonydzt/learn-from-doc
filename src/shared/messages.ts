@@ -1,6 +1,8 @@
 import type { PageIndexRecord, SiteRecord, ProgressRecord } from '../storage/db';
 import type { AppSettings } from '../settings/app-settings';
 
+// RuntimeMessage 是扩展内部的消息契约，类似后端项目里的 API DTO。
+// popup/options/content script 不能直接调用彼此的函数，只能通过这些 message type 通信。
 export type PageContextResponse = {
   supported: boolean;
   indexed: boolean;

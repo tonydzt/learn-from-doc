@@ -66,6 +66,8 @@ function App() {
     module: ModuleKey = initialModule,
     tableView: TableView = 'overview',
   ) => {
+    // options 是扩展的管理后台页面。它不直接读数据库，而是通过 background 的 message API
+    // 一次加载索引概览、设置，以及当前选中站点的完整快照。
     setState({ status: 'loading' });
     try {
       const [overviews, settings] = await Promise.all([

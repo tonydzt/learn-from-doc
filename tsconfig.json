@@ -1,9 +1,31 @@
 {
+  // 继承 WXT 自动生成的 TypeScript 配置。
+  // WXT 会在 .wxt/tsconfig.json 里配置扩展项目需要的路径别名、entrypoints 类型等基础规则；
+  // 这里的 tsconfig 只覆盖本项目额外需要明确声明的部分。
   "extends": "./.wxt/tsconfig.json",
+
+  // compilerOptions 控制 TypeScript 如何做类型检查、如何理解语法和全局类型。
+  // 注意：这个项目主要由 WXT/Vite 负责构建，tsconfig 更多用于类型检查和 IDE 提示。
   "compilerOptions": {
+    // 允许 import 路径显式带 .ts 扩展名。
+    // 例如某些 ESM 场景可以写 import './foo.ts'。
+    // 当前仓库大多不用这种写法，但保留该配置能避免遇到显式 .ts import 时报错。
     "allowImportingTsExtensions": true,
+
+    // 使用 React 17+ 的新 JSX 转换。
+    // 写 TSX 时不需要仅为了 JSX 手动 import React；
+    // 构建工具会把 <Component /> 这类语法转换成 React runtime 调用。
     "jsx": "react-jsx",
+
+    // 开启严格类型检查。
+    // 这会启用一组更严格的规则，例如空值检查、函数参数检查等；
+    // 对这个扩展很重要，因为 message payload、IndexedDB 记录和 DOM 查询都容易出现 undefined。
     "strict": true,
+
+    // 声明项目中可用的全局类型来源。
+    // chrome: Chrome 扩展 API 类型，例如 chrome.storage.StorageChange。
+    // node: Node.js 类型，供配置文件和测试环境使用。
+    // vitest/globals: 允许测试文件直接使用 describe/it/expect 等全局函数。
     "types": ["chrome", "node", "vitest/globals"]
   }
 }

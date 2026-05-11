@@ -22,6 +22,7 @@ export type ProgressInsertionTargets = {
 
 export type DocSiteAdapter = {
   id: string;
+  // Adapter 是“站点专用解析器”：核心逻辑不猜 DOM 结构，只问当前站点 adapter 去哪里找导航和正文。
   matches(url: URL): boolean;
   getDocScope(): DocScope | null;
   expandLazyNavigation(): Promise<void>;

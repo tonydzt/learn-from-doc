@@ -51,6 +51,8 @@ function App() {
   const [overview, setOverview] = React.useState<IndexOverview | null>(null);
 
   const load = React.useCallback(async () => {
+    // popup 每次打开都是一个短生命周期 React 页面。
+    // 它先问 Chrome 当前激活 tab，再向该 tab 的 content script 查询页面上下文。
     setState({ status: 'loading' });
     try {
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -81,6 +83,7 @@ function App() {
   }, [load]);
 
   React.useEffect(() => {
+    // 监听 background 广播的索引进度，用来在 popup 内显示“正在测第几页”。
     const listener = (message: RuntimeMessage) => {
       if (message.type !== 'INDEX_RUN_PROGRESS') return undefined;
       setIndexProgress(message.payload);
