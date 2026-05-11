@@ -11,7 +11,6 @@ import {
   getAllSites,
   getPage,
   getPages,
-  getProgress,
   getProgressForSite,
   getSite,
   replaceSitePages,
@@ -247,15 +246,13 @@ export default defineBackground(() => {
       return { ok: true, matched: true };
     }
 
-    // popup/options 管理页使用：获取所有站点索引的概览列表。
+    // options 管理页使用：获取所有站点索引的概览列表。
     if (message.type === 'GET_INDEX_OVERVIEWS') return getIndexOverviews();
 
-    // options 管理页使用：打开某个索引详情时，一次拿到 site/pages/progress。
+    // popup/options 管理页使用：一次拿到当前站点的 site/pages/progress。
     if (message.type === 'GET_SITE_SNAPSHOT') return getSiteSnapshot(message.siteId);
 
     // content script 使用：判断当前文档范围是否已经创建过索引。
-    if (message.type === 'GET_SITE_RECORD') return getSite(message.siteId);
-
     // content script 和页面内进度 UI 使用：读取某个文档范围下的全部页面索引。
     if (message.type === 'GET_SITE_PAGES') return getPages(message.siteId);
 
@@ -265,15 +262,12 @@ export default defineBackground(() => {
     // content script 和页面内进度 UI 使用：读取某个文档范围下的全部阅读进度。
     if (message.type === 'GET_SITE_PROGRESS') return getProgressForSite(message.siteId);
 
-    // content script/popup 使用：读取当前页面的单条阅读进度。
-    if (message.type === 'GET_PROGRESS_RECORD') return getProgress(message.siteId, message.url);
-
     // content script 使用：滚动采样后保存当前页面的阅读进度。
     if (message.type === 'SAVE_PROGRESS_RECORD') {
       return saveProgress(message.siteId, message.url, message.ranges, message.contentHeight);
     }
 
-    // popup/options/content script 使用：读取扩展全局设置，例如是否显示右侧阅读地图。
+    // options/content script 使用：读取扩展全局设置，例如是否显示右侧阅读地图。
     if (message.type === 'GET_APP_SETTINGS') return getAppSettings();
 
     // options 管理页使用：保存扩展全局设置。

@@ -1,13 +1,25 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
-import type { IndexOverview, PageContextResponse, RuntimeMessage, StartIndexResult } from '../../src/shared/messages';
+import { totalProgressPercent } from '../../src/progress/calculations';
+import type { RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
 import { siteIdFor } from '../../src/shared/url';
 import './style.css';
 
+type PopupContext = {
+  supported: boolean;
+  indexed: boolean;
+  host?: string;
+  scopeKey?: string;
+  scopeTitle?: string;
+  totalPercent?: number;
+  pageCount?: number;
+};
+type SupportedScope = Required<Pick<PopupContext, 'host' | 'scopeKey' | 'scopeTitle'>>;
+
 type LoadState =
   | { status: 'loading' }
-  | { status: 'ready'; context: PageContextResponse }
+  | { status: 'ready'; context: PopupContext }
   | { status: 'error'; message: string };
 
 type IndexRunProgress = Extract<RuntimeMessage, { type: 'INDEX_RUN_PROGRESS' }>['payload'];
@@ -16,22 +28,20 @@ function fmt(value: number | undefined): string {
   return `${Math.round(value ?? 0)}%`;
 }
 
-function fmtHeight(value: number): string {
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}k px`;
-  return `${Math.round(value)} px`;
-}
-
-function isSupportedTabUrl(url: string | undefined): boolean {
-  if (!url) return false;
+function scopeFromTabUrl(url: string | undefined): SupportedScope | null {
+  if (!url) return null;
   try {
     const parsed = new URL(url);
-    return parsed.hostname === 'react.dev'
-      && (parsed.pathname === '/learn'
-        || parsed.pathname.startsWith('/learn/')
-        || parsed.pathname === '/reference/react'
-        || parsed.pathname.startsWith('/reference/react/'));
+    if (parsed.hostname !== 'react.dev') return null;
+    if (parsed.pathname === '/learn' || parsed.pathname.startsWith('/learn/')) {
+      return { host: parsed.hostname, scopeKey: 'learn', scopeTitle: 'Learn React' };
+    }
+    if (parsed.pathname === '/reference/react' || parsed.pathname.startsWith('/reference/react/')) {
+      return { host: parsed.hostname, scopeKey: 'reference-react', scopeTitle: 'React Reference' };
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -48,28 +58,32 @@ function App() {
   const [state, setState] = React.useState<LoadState>({ status: 'loading' });
   const [indexing, setIndexing] = React.useState(false);
   const [indexProgress, setIndexProgress] = React.useState<IndexRunProgress | null>(null);
-  const [overview, setOverview] = React.useState<IndexOverview | null>(null);
 
   const load = React.useCallback(async () => {
     // popup 每次打开都是一个短生命周期 React 页面。
-    // 它先问 Chrome 当前激活 tab，再向该 tab 的 content script 查询页面上下文。
+    // 它先问 Chrome 当前激活 tab，再从 background 查询当前文档范围的索引快照。
     setState({ status: 'loading' });
     try {
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (tab.id == null) throw new Error('No active tab found.');
-      if (!isSupportedTabUrl(tab.url)) {
+      const scope = scopeFromTabUrl(tab.url);
+      if (!scope) {
         setState({ status: 'ready', context: { supported: false, indexed: false } });
         return;
       }
-      const context = await browser.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTEXT' } satisfies RuntimeMessage) as PageContextResponse;
-      if (context.host && context.scopeKey) {
-        const overviews = await browser.runtime.sendMessage({ type: 'GET_INDEX_OVERVIEWS' } satisfies RuntimeMessage) as IndexOverview[];
-        const currentSiteId = siteIdFor(context.host, context.scopeKey);
-        setOverview(overviews.find((item) => item.site.siteId === currentSiteId) ?? null);
-      } else {
-        setOverview(null);
-      }
-      setState({ status: 'ready', context });
+
+      const siteId = siteIdFor(scope.host, scope.scopeKey);
+      const snapshot = await browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as SiteSnapshot | undefined;
+      setState({
+        status: 'ready',
+        context: {
+          supported: true,
+          indexed: Boolean(snapshot),
+          ...scope,
+          totalPercent: snapshot ? totalProgressPercent(snapshot.pages, snapshot.progress) : 0,
+          pageCount: snapshot?.pages.length ?? 0,
+        },
+      });
     } catch (error) {
       setState({
         status: 'error',
@@ -118,7 +132,8 @@ function App() {
   };
 
   const openManager = async () => {
-    const siteId = overview?.site.siteId;
+    const context = state.status === 'ready' ? state.context : undefined;
+    const siteId = context?.host && context.scopeKey ? siteIdFor(context.host, context.scopeKey) : undefined;
     const url = `${browser.runtime.getURL('/options.html')}${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`;
     await browser.tabs.create({ url });
   };
@@ -156,7 +171,15 @@ function App() {
           <p className="eyebrow">Learn From Doc</p>
           <h1>{context.supported ? context.scopeTitle : 'Unsupported page'}</h1>
         </div>
-        {context.indexed ? <span className="status">Indexed</span> : <span className="status muted-status">New</span>}
+        <div className="header-actions">
+          {context.indexed ? <span className="status">Indexed</span> : <span className="status muted-status">New</span>}
+          <button className="icon-button" type="button" title="Open manager" aria-label="Open manager" onClick={() => void openManager()}>
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+              <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2.1 2.1 0 0 1-2.97 2.97l-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.09 1.65V21.4a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.18-1.65 1.8 1.8 0 0 0-1.98.36l-.04.04a2.1 2.1 0 0 1-2.97-2.97l.04-.04A1.8 1.8 0 0 0 3.7 15a1.8 1.8 0 0 0-1.65-1.09H2a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 3.7 8.62a1.8 1.8 0 0 0-.36-1.98l-.04-.04a2.1 2.1 0 0 1 2.97-2.97l.04.04a1.8 1.8 0 0 0 1.98.36A1.8 1.8 0 0 0 9.38 2.4V2.2a2.1 2.1 0 0 1 4.2 0v.06a1.8 1.8 0 0 0 1.09 1.65 1.8 1.8 0 0 0 1.98-.36l.04-.04a2.1 2.1 0 0 1 2.97 2.97l-.04.04a1.8 1.8 0 0 0-.36 1.98 1.8 1.8 0 0 0 1.65 1.09H21a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       {!context.supported ? (
@@ -173,54 +196,6 @@ function App() {
               <p>{context.indexed ? `${context.pageCount ?? 0} pages indexed locally` : 'Create a local index before tracking progress.'}</p>
             </div>
           </section>
-
-          <section className="meters">
-            <div>
-              <span>Current page</span>
-              <strong>{fmt(context.pagePercent)}</strong>
-            </div>
-            <div className="bar">
-              <i style={{ width: `${context.pagePercent ?? 0}%` }} />
-            </div>
-          </section>
-
-          {context.indexed ? (
-            <section className="debug-panel">
-              <div>
-                <span>Page indexed</span>
-                <strong>{context.currentPageIndexed ? 'yes' : 'no'}</strong>
-              </div>
-              <div>
-                <span>Viewed height</span>
-                <strong>{fmtHeight(context.currentViewedHeight ?? 0)}</strong>
-              </div>
-              <div>
-                <span>Page height</span>
-                <strong>{fmtHeight(context.currentPageContentHeight ?? 0)}</strong>
-              </div>
-              <p>{context.currentUrl}</p>
-            </section>
-          ) : null}
-
-          {overview ? (
-            <button className="index-card" type="button" onClick={() => void openManager()}>
-              <div className="index-card-head">
-                <span>Index overview</span>
-                <strong>{overview.pageCount} pages</strong>
-              </div>
-              <div className="index-card-grid">
-                <div>
-                  <span>Total height</span>
-                  <strong>{fmtHeight(overview.totalContentHeight)}</strong>
-                </div>
-                <div>
-                  <span>Read height</span>
-                  <strong>{fmtHeight(overview.totalViewedHeight)}</strong>
-                </div>
-              </div>
-              <p>Open index manager</p>
-            </button>
-          ) : null}
 
           {indexing && indexProgress ? (
             <section className="index-progress">

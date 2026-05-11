@@ -44,6 +44,13 @@ button {
   margin-bottom: 22px;
 }
 
+.header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .eyebrow {
   margin: 0 0 7px;
   color: #0f766e;
@@ -79,6 +86,41 @@ h1 {
   color: #64748b;
 }
 
+.icon-button {
+  appearance: none;
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  outline: 0;
+  box-shadow: none;
+}
+
+.icon-button:hover {
+  color: #0f766e;
+  background: transparent;
+}
+
+.icon-button:focus-visible {
+  color: #0f766e;
+}
+
+.icon-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
 .hero {
   display: grid;
   grid-template-columns: 116px 1fr;
@@ -105,8 +147,7 @@ h1 {
   font-weight: 850;
 }
 
-.hero-copy span,
-.meters span {
+.hero-copy span {
   display: block;
   color: #64748b;
   font-size: 12px;
@@ -130,112 +171,12 @@ h1 {
   line-height: 1.45;
 }
 
-.meters {
-  margin: 16px 0 18px;
-  padding: 14px;
-  border: 1px solid rgba(15, 23, 42, .1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .68);
-}
-
 .index-progress {
   margin: 0 0 14px;
   padding: 12px;
   border: 1px solid rgba(15, 118, 110, .18);
   border-radius: 8px;
   background: rgba(240, 253, 250, .72);
-}
-
-.index-card {
-  display: block;
-  width: 100%;
-  margin: 0 0 14px;
-  padding: 13px;
-  border: 1px solid rgba(15, 23, 42, .11);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .74);
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.debug-panel {
-  margin: 0 0 14px;
-  padding: 12px;
-  border: 1px solid rgba(15, 23, 42, .1);
-  border-radius: 8px;
-  background: rgba(248, 250, 252, .76);
-}
-
-.debug-panel > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 7px;
-}
-
-.debug-panel span {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 850;
-}
-
-.debug-panel strong {
-  color: #111827;
-  font-size: 12px;
-}
-
-.debug-panel p {
-  margin: 9px 0 0;
-  overflow-wrap: anywhere;
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.index-card:hover {
-  border-color: rgba(15, 118, 110, .28);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, .1);
-}
-
-.index-card-head,
-.index-card-grid {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.index-card-head {
-  margin-bottom: 11px;
-}
-
-.index-card-head span,
-.index-card-grid span {
-  display: block;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.index-card-head strong {
-  color: #0f766e;
-  font-size: 13px;
-}
-
-.index-card-grid strong {
-  display: block;
-  margin-top: 4px;
-  color: #111827;
-  font-size: 14px;
-}
-
-.index-card p {
-  margin: 11px 0 0;
-  color: #0f766e;
-  font-size: 12px;
-  font-weight: 850;
 }
 
 .index-progress-row {
@@ -266,19 +207,6 @@ h1 {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.meters > div:first-child {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.meters strong {
-  color: #111827;
-  font-size: 17px;
 }
 
 .bar {

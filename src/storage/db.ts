@@ -150,11 +150,6 @@ export async function getProgressForSite(siteId: string): Promise<ProgressRecord
   return tx(['progress'], 'readonly', ({ progress }) => indexAll<ProgressRecord>(progress, 'bySite', siteId));
 }
 
-// 读取某个文档范围下的单页阅读进度。
-export async function getProgress(siteId: string, url: string): Promise<ProgressRecord | undefined> {
-  return tx(['progress'], 'readonly', ({ progress }) => requestToPromise<ProgressRecord | undefined>(progress.get([siteId, url])));
-}
-
 // 保存单页阅读进度；调用方传入已浏览区间，这里负责合并区间并计算已浏览高度。
 export async function saveProgress(siteId: string, url: string, ranges: ViewedRange[], contentHeight: number): Promise<ProgressRecord> {
   // progress 存的是“已看过的正文高度区间”，不是滚动次数或最后位置；

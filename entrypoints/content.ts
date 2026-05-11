@@ -6,20 +6,14 @@ import { addViewedRange, mergeRanges, type ViewedRange } from '../src/progress/r
 import { APP_SETTINGS_STORAGE_KEY, normalizeAppSettings, type AppSettings } from '../src/settings/app-settings';
 import { DATA_ATTR, FLUSH_INTERVAL_MS } from '../src/shared/constants';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
-import type { IndexLinksResponse, PageContextResponse, RuntimeMessage } from '../src/shared/messages';
+import type { IndexLinksResponse, RuntimeMessage } from '../src/shared/messages';
 import { isIndexingDebugUrl, isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
-import type { PageIndexRecord, ProgressRecord, SiteRecord } from '../src/storage/db';
+import type { PageIndexRecord, ProgressRecord } from '../src/storage/db';
 
 // 向 background 发送 runtime message。
 // content script 不直接访问数据库和扩展管理页，统一通过 background 做数据读写和调度。
 function sendRuntimeMessage<T>(message: RuntimeMessage): Promise<T> {
   return browser.runtime.sendMessage(message) as Promise<T>;
-}
-
-// Content script 运行在网页上下文旁边。为了避免不同扩展上下文的 IndexedDB 可见性问题，
-// 它不直接访问 IndexedDB，而是把数据请求转发给 background。
-function getSiteFromBackground(siteId: string): Promise<SiteRecord | undefined> {
-  return sendRuntimeMessage<SiteRecord | undefined>({ type: 'GET_SITE_RECORD', siteId });
 }
 
 // 读取某个文档范围下的全部页面索引。
@@ -35,11 +29,6 @@ function getPageFromBackground(siteId: string, url: string): Promise<PageIndexRe
 // 读取某个文档范围下的全部阅读进度，用来计算总进度和页面 badge。
 function getProgressForSiteFromBackground(siteId: string): Promise<ProgressRecord[]> {
   return sendRuntimeMessage<ProgressRecord[]>({ type: 'GET_SITE_PROGRESS', siteId });
-}
-
-// 读取当前页面的单条阅读进度，供 popup 展示当前页详情。
-function getProgressFromBackground(siteId: string, url: string): Promise<ProgressRecord | undefined> {
-  return sendRuntimeMessage<ProgressRecord | undefined>({ type: 'GET_PROGRESS_RECORD', siteId, url });
 }
 
 // 保存当前页面的阅读区间；真正写 IndexedDB 的动作由 background 完成。
@@ -311,60 +300,6 @@ function renderReadingMap(ranges: ViewedRange[], viewportRange: ViewedRange | nu
 
   // replaceChildren 让每次渲染都以当前 ranges 为准，避免旧段残留。
   map.replaceChildren(...children);
-}
-
-async function getPageContext(): Promise<PageContextResponse> {
-  // popup 打开时调用这里，拿到“当前 tab 是否支持、是否已索引、进度是多少”等页面上下文。
-  const adapter = getAdapterForUrl(location.href);
-  const scope = adapter?.getDocScope();
-  if (!adapter || !scope) return { supported: false, indexed: false };
-
-  const siteId = siteIdFor(scope.host, scope.scopeKey);
-  const site = await getSiteFromBackground(siteId);
-  if (!site) {
-    // 页面受支持但还没创建索引：popup 会展示创建索引入口。
-    return {
-      supported: true,
-      indexed: false,
-      host: scope.host,
-      scopeKey: scope.scopeKey,
-      scopeTitle: scope.scopeTitle,
-      currentUrl: normalizePageUrl(location.href),
-    };
-  }
-
-  const [pages, progress, currentPage, currentProgress] = await Promise.all([
-    getPagesFromBackground(siteId),
-    getProgressForSiteFromBackground(siteId),
-    getPageFromBackground(siteId, normalizePageUrl(location.href)),
-    getProgressFromBackground(siteId, normalizePageUrl(location.href)),
-  ]);
-  lfdDebug('page context loaded', {
-    siteId,
-    currentUrl: normalizePageUrl(location.href),
-    pageCount: pages.length,
-    progressCount: progress.length,
-    currentPageIndexed: Boolean(currentPage),
-    currentPage,
-    currentProgress,
-  });
-
-  return {
-    supported: true,
-    indexed: true,
-    host: scope.host,
-    scopeKey: scope.scopeKey,
-    scopeTitle: scope.scopeTitle,
-    site,
-    currentUrl: normalizePageUrl(location.href),
-    totalPercent: totalProgressPercent(pages, progress),
-    pagePercent: pageProgressPercent(currentPage, currentProgress),
-    pageCount: pages.length,
-    currentPageIndexed: Boolean(currentPage),
-    currentPageContentHeight: currentPage?.contentHeight,
-    currentViewedHeight: currentProgress?.viewedHeight ?? 0,
-    currentViewedRangeCount: currentProgress?.viewedRanges.length ?? 0,
-  };
 }
 
 async function collectIndexLinks(): Promise<IndexLinksResponse> {
@@ -653,8 +588,6 @@ export default defineContentScript({
     };
 
     browser.runtime.onMessage.addListener((message: RuntimeMessage) => {
-      // popup 使用：查询当前 tab 的支持状态、索引状态和进度。
-      if (message.type === 'GET_PAGE_CONTEXT') return getPageContext();
       // background.startIndex 使用：创建索引前收集当前页面左侧导航链接。
       if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
       // background 保存索引后通知原页面刷新 tracker。
