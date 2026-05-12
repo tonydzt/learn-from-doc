@@ -64,15 +64,18 @@ export const ReactDevAdapter: DocSiteAdapter = {
     return url.hostname === 'react.dev' && isReactDocPath(url.pathname);
   },
 
-  // 返回当前页面所属的文档范围，用于生成 siteId 和展示范围标题。
-  getDocScope() {
-    const url = new URL(location.href);
+  getDocScopeForUrl(url) {
     const scope = scopeFromPath(url.pathname);
     if (!scope) return null;
     return {
       host: url.hostname,
       ...scope,
     };
+  },
+
+  // 返回当前页面所属的文档范围，用于生成 siteId 和展示范围标题。
+  getDocScope() {
+    return this.getDocScopeForUrl(new URL(location.href));
   },
 
   // 索引前展开左侧懒加载/折叠导航，保证 getSidebarLinks 能收集完整目录。

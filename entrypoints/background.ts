@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { indexLinksForMode, shouldKeepMeasuredTabOpen, shouldOpenMeasuredTabActive } from '../src/indexing/debug-options';
+import { indexFailureConsolePayload } from '../src/indexing/source-tab-log';
 import { totalProgressPercent } from '../src/progress/calculations';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
 import type { IndexOverview, IndexPageMeasuredMessage, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../src/shared/messages';
@@ -34,6 +34,16 @@ type PendingMeasurement = {
 // 这个 Map 用 tabId 把“等待中的 Promise”和“测量页面回传的消息”配对。
 const pendingMeasurements = new Map<number, PendingMeasurement>();
 
+function errorDetails(error: unknown): { message: string; stack?: string } {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  return { message: String(error) };
+}
+
 // 向指定 tab 的 content script 发送消息，并把返回值转换成调用方期望的类型。
 function sendTabMessage<T>(tabId: number, message: RuntimeMessage): Promise<T> {
   return browser.tabs.sendMessage(tabId, message) as Promise<T>;
@@ -48,6 +58,23 @@ async function emitIndexProgress(payload: Extract<RuntimeMessage, { type: 'INDEX
   } satisfies RuntimeMessage).catch(() => undefined);
 }
 
+async function logIndexFailureToSourceTab(tabId: number, error: unknown): Promise<void> {
+  const [label, details] = indexFailureConsolePayload(errorDetails(error));
+  await browser.scripting.executeScript({
+    target: { tabId },
+    func: (message, payload) => {
+      console.error(message, payload);
+    },
+    args: [label, details],
+  }).catch((logError) => {
+    lfdDebug('failed to log index error to source tab', {
+      tabId,
+      originalError: details,
+      logError: errorDetails(logError),
+    });
+  });
+}
+
 // 汇总所有已索引站点的概览数据，供 popup 和 options 管理页展示。
 async function getIndexOverviews(): Promise<IndexOverview[]> {
   const sites = await getAllSites();
@@ -56,11 +83,16 @@ async function getIndexOverviews(): Promise<IndexOverview[]> {
       getPages(site.siteId),
       getProgressForSite(site.siteId),
     ]);
+    const contentHeightByUrl = new Map(pages.map((page) => [page.url, Math.max(0, page.contentHeight)]));
     return {
       site,
       pageCount: pages.length,
       totalContentHeight: pages.reduce((sum, page) => sum + page.contentHeight, 0),
-      totalViewedHeight: progress.reduce((sum, record) => sum + record.viewedHeight, 0),
+      totalViewedHeight: progress.reduce((sum, record) => {
+        const contentHeight = contentHeightByUrl.get(record.url);
+        if (contentHeight == null) return sum;
+        return sum + Math.min(Math.max(0, record.viewedHeight), contentHeight);
+      }, 0),
       totalPercent: totalProgressPercent(pages, progress),
       updatedAt: site.updatedAt,
     };
@@ -93,36 +125,31 @@ function waitForMeasurement(tabId: number): Promise<IndexPageMeasuredMessage['pa
 }
 
 // 打开一个带索引 hash 的临时 tab，让 content script 测量页面正文高度。
-async function measurePage(url: string, debug: boolean): Promise<{ tabId: number; payload: IndexPageMeasuredMessage['payload'] }> {
-  lfdDebug('opening indexing tab', { url, debug });
+async function measurePage(url: string): Promise<{ tabId: number; payload: IndexPageMeasuredMessage['payload'] }> {
+  lfdDebug('opening indexing tab', { url });
   const tab = await browser.tabs.create({
-    url: withIndexingHash(url, debug),
-    active: shouldOpenMeasuredTabActive(debug),
+    url: withIndexingHash(url),
+    active: false,
   });
   if (tab.id == null) throw new Error('Could not create indexing tab.');
 
   try {
     const payload = await waitForMeasurement(tab.id);
-    lfdDebug('measured indexing tab', { tabId: tab.id, payload, debug });
+    lfdDebug('measured indexing tab', { tabId: tab.id, payload });
     return { tabId: tab.id, payload };
   } finally {
-    // finally 确保测量成功或失败后都会清理临时 tab；debug 模式保留 tab 方便看页面日志。
-    if (shouldKeepMeasuredTabOpen(debug)) {
-      lfdDebug('debug mode: keeping indexing tab open', { tabId: tab.id });
-    } else {
-      await browser.tabs.remove(tab.id).catch(() => undefined);
-    }
+    // finally 确保测量成功或失败后都会清理临时 tab。
+    await browser.tabs.remove(tab.id).catch(() => undefined);
   }
 }
 
 // 创建或重建当前文档范围的索引：收集导航链接、逐页测量正文高度、保存 pages。
-async function startIndex(tabId: number, debug = false): Promise<StartIndexResult> {
-  lfdDebug('start index', { tabId, debug });
+async function startIndex(tabId: number): Promise<StartIndexResult> {
+  lfdDebug('start index', { tabId });
   await emitIndexProgress({
     phase: 'collecting',
     current: 0,
     total: 0,
-    debug,
   });
   const indexLinks = await sendTabMessage<{
     host: string;
@@ -131,13 +158,10 @@ async function startIndex(tabId: number, debug = false): Promise<StartIndexResul
     links: Array<{ url: string; title: string }>;
   }>(tabId, { type: 'COLLECT_INDEX_LINKS' });
 
-  if (indexLinks.links.length === 0) {
-    return { ok: false, error: 'No document links found in the current sidebar.' };
-  }
+  if (indexLinks.links.length === 0) throw new Error('No document links found in the current sidebar.');
   lfdDebug('collected sidebar links', {
     count: indexLinks.links.length,
     first: indexLinks.links[0],
-    debug,
   });
 
   const siteId = siteIdFor(indexLinks.host, indexLinks.scopeKey);
@@ -154,20 +178,16 @@ async function startIndex(tabId: number, debug = false): Promise<StartIndexResul
   };
 
   const pages: PageIndexRecord[] = [];
-  const measuredTabIds: number[] = [];
-  const selectedLinks = indexLinksForMode(indexLinks.links, debug);
   await emitIndexProgress({
     phase: 'measuring',
     current: 0,
-    total: selectedLinks.length,
-    currentTitle: selectedLinks[0]?.title,
-    currentUrl: selectedLinks[0]?.url,
-    debug,
+    total: indexLinks.links.length,
+    currentTitle: indexLinks.links[0]?.title,
+    currentUrl: indexLinks.links[0]?.url,
   });
-  for (const [order, link] of selectedLinks.entries()) {
+  for (const [order, link] of indexLinks.links.entries()) {
     // 串行测量，避免一次性打开大量文档页；每个页面只负责回传正文高度，不记录阅读进度。
-    const measured = await measurePage(link.url, debug);
-    measuredTabIds.push(measured.tabId);
+    const measured = await measurePage(link.url);
     pages.push({
       siteId,
       url: normalizePageUrl(measured.payload.url),
@@ -178,44 +198,27 @@ async function startIndex(tabId: number, debug = false): Promise<StartIndexResul
     await emitIndexProgress({
       phase: 'measuring',
       current: pages.length,
-      total: selectedLinks.length,
-      currentTitle: selectedLinks[order + 1]?.title ?? link.title,
-      currentUrl: selectedLinks[order + 1]?.url ?? link.url,
-      debug,
+      total: indexLinks.links.length,
+      currentTitle: indexLinks.links[order + 1]?.title ?? link.title,
+      currentUrl: indexLinks.links[order + 1]?.url ?? link.url,
     });
   }
 
   await emitIndexProgress({
     phase: 'saving',
     current: pages.length,
-    total: selectedLinks.length,
-    debug,
+    total: indexLinks.links.length,
   });
   await replaceSitePages(site, pages);
   lfdDebug('index saved', {
     siteId,
     pageCount: pages.length,
-    debug,
   });
   await emitIndexProgress({
     phase: 'done',
     current: pages.length,
-    total: selectedLinks.length,
-    debug,
+    total: indexLinks.links.length,
   });
-  if (debug && selectedLinks.length > 0) {
-    // debug 模式会保留测量 tab，因此可以把保存结果发回页面，显示在 debug 面板里。
-    await Promise.all(measuredTabIds.map((measuredTabId) => {
-      return browser.tabs.sendMessage(measuredTabId, {
-        type: 'INDEX_DEBUG_STATUS',
-        payload: {
-          ok: true,
-          message: 'Background saved debug index.',
-          details: { siteId, pageCount: pages.length, pages },
-        },
-      } satisfies RuntimeMessage).catch(() => undefined);
-    }));
-  }
   // 通知原始阅读页索引已更新，让 content script 重新启动/刷新阅读 tracker。
   await browser.tabs.sendMessage(tabId, { type: 'INDEX_PROGRESS_UPDATED', siteId }).catch(() => undefined);
   return { ok: true, site, pages };
@@ -291,10 +294,13 @@ export default defineBackground(() => {
     // 非 background 负责处理的消息返回 undefined，让浏览器继续按普通无响应消息处理。
     if (message.type !== 'START_INDEX') return undefined;
 
-    // popup 使用：点击创建/重建索引或 debug 索引时触发完整索引流程。
-    return startIndex(message.tabId, message.debug === true).catch((error: unknown) => ({
-      ok: false,
-      error: error instanceof Error ? error.message : 'Indexing failed.',
-    }));
+    // popup 使用：点击创建/重建索引时触发完整索引流程。
+    return startIndex(message.tabId).catch(async (error: unknown) => {
+      await logIndexFailureToSourceTab(message.tabId, error);
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Indexing failed.',
+      };
+    });
   });
 });

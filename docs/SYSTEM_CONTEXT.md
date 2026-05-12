@@ -105,8 +105,7 @@ src/
 重要行为：
 
 - 索引任务串行执行，避免同时打开太多页面。
-- 普通模式测量完会关闭 tab。
-- debug 模式只测一个页面，并保持测量 tab 打开，方便复制日志。
+- 测量完会关闭 tab。
 - `INDEX_TIMEOUT_MS` 当前为 30000ms。
 
 ### content script
@@ -148,7 +147,7 @@ SPA 路由处理：
 - 查询当前 tab 的页面上下文。
 - 展示是否支持当前站点、是否已索引。
 - 展示总进度、当前页进度、页面数量等概览。
-- 提供创建索引、重建索引、debug 索引入口。
+- 提供创建索引、重建索引入口。
 - 接收 background 广播的索引进度。
 - 索引完成后仍显示索引概览，而不是让进度条消失。
 
@@ -338,19 +337,6 @@ scope：
 #__learn_from_doc_indexing=1
 ```
 
-debug hash：
-
-```text
-#__learn_from_doc_indexing=1&lfd_debug=1
-```
-
-debug 模式：
-
-- 只测量一个页面。
-- 打开的测量 tab 不关闭。
-- 页面内会显示 debug 状态面板。
-- 用于复制 content script 和 background 日志排查问题。
-
 ## 阅读流程
 
 普通页面加载或 SPA 路由切换后：
@@ -398,7 +384,7 @@ debug 模式：
 Popup：
 
 - 显示站点名称、索引状态、总进度、当前页进度。
-- 有创建索引、重建索引、debug 索引入口。
+- 有创建索引、重建索引入口。
 - 索引完成后显示索引概览。
 - 点击概览可进入管理页查看详情。
 
@@ -441,8 +427,6 @@ localStorage.setItem('learn-from-doc:verbose', '1')
 ```js
 localStorage.removeItem('learn-from-doc:verbose')
 ```
-
-索引 debug 模式也会通过 `lfd_debug=1` 开启 verbose。
 
 常见排查点：
 
@@ -515,7 +499,7 @@ localStorage.removeItem('learn-from-doc:verbose')
 
 根因：
 
-- 每次新增可见区间都打印 debug 日志。
+- 每次新增可见区间都打印生命周期日志。
 
 修复：
 
@@ -542,8 +526,8 @@ localStorage.removeItem('learn-from-doc:verbose')
   - react.dev URL 匹配
   - scope/link 去重等 adapter 行为
 
-- `src/indexing/debug-options.test.ts`
-  - debug 索引只选一个页面等行为
+- `src/shared/url.test.ts`
+  - 索引 URL hash
 
 - `src/shared/logger.test.ts`
   - 日志格式
@@ -578,7 +562,7 @@ npm run build
 - 不要把创建索引时打开的页面计入阅读进度。
 - 不要为了减少日志或消息而降低阅读采样精度。
 - 页面注入要考虑 React hydration 和 React 后续重渲染。
-- 高频日志必须默认关闭，需要时通过 verbose/debug 打开。
+- 高频日志必须默认关闭，需要时通过 verbose 打开。
 - 插件设置存储在 `browser.storage.local`，不是 IndexedDB 表；管理页将其作为 settings 视图展示。
 
 ## 未来扩展方向

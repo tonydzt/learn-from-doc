@@ -7,18 +7,14 @@ export function normalizePageUrl(input: string): string {
   return url.toString();
 }
 
-export function withIndexingHash(input: string, debug = false): string {
+export function withIndexingHash(input: string): string {
   const url = new URL(input);
-  url.hash = debug ? `${INDEXING_HASH}&lfd_debug=1` : INDEXING_HASH;
+  url.hash = INDEXING_HASH;
   return url.toString();
 }
 
 export function isIndexingUrl(input: string): boolean {
   return new URL(input).hash.includes(INDEXING_HASH);
-}
-
-export function isIndexingDebugUrl(input: string): boolean {
-  return new URL(input).hash.includes('lfd_debug=1');
 }
 
 export function siteIdFor(host: string, scopeKey: string): string {

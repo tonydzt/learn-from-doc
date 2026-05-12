@@ -5,12 +5,6 @@ export function formatDebugLog(label: string, details?: unknown): string {
 
 export function isVerboseLogEnabled(): boolean {
   try {
-    if (globalThis.location?.hash.includes('lfd_debug=1')) return true;
-  } catch {
-    // Ignore environments without a readable location.
-  }
-
-  try {
     return globalThis.localStorage?.getItem('learn-from-doc:verbose') === '1';
   } catch {
     return false;

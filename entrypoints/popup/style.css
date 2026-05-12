@@ -240,24 +240,6 @@ h1 {
   opacity: .7;
 }
 
-.secondary {
-  width: 100%;
-  min-height: 38px;
-  margin-top: 10px;
-  border: 1px solid rgba(15, 23, 42, .14);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .72);
-  color: #334155;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.secondary:disabled {
-  cursor: progress;
-  opacity: .7;
-}
-
 .empty {
   margin-top: 28px;
   padding: 16px;

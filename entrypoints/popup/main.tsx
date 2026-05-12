@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
+import { getScopeForUrl } from '../../src/adapters';
 import { totalProgressPercent } from '../../src/progress/calculations';
 import type { RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
 import { siteIdFor } from '../../src/shared/url';
@@ -31,15 +32,7 @@ function fmt(value: number | undefined): string {
 function scopeFromTabUrl(url: string | undefined): SupportedScope | null {
   if (!url) return null;
   try {
-    const parsed = new URL(url);
-    if (parsed.hostname !== 'react.dev') return null;
-    if (parsed.pathname === '/learn' || parsed.pathname.startsWith('/learn/')) {
-      return { host: parsed.hostname, scopeKey: 'learn', scopeTitle: 'Learn React' };
-    }
-    if (parsed.pathname === '/reference/react' || parsed.pathname.startsWith('/reference/react/')) {
-      return { host: parsed.hostname, scopeKey: 'reference-react', scopeTitle: 'React Reference' };
-    }
-    return null;
+    return getScopeForUrl(url);
   } catch {
     return null;
   }
@@ -107,18 +100,17 @@ function App() {
     return () => browser.runtime.onMessage.removeListener(listener);
   }, []);
 
-  const startIndex = async (debug = false) => {
+  const startIndex = async () => {
     setIndexing(true);
     setIndexProgress({
       phase: 'collecting',
       current: 0,
       total: 0,
-      debug,
     });
     try {
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (tab.id == null) throw new Error('No active tab found.');
-      const result = await browser.runtime.sendMessage({ type: 'START_INDEX', tabId: tab.id, debug } satisfies RuntimeMessage) as StartIndexResult;
+      const result = await browser.runtime.sendMessage({ type: 'START_INDEX', tabId: tab.id } satisfies RuntimeMessage) as StartIndexResult;
       if (!result.ok) throw new Error(result.error);
       await load();
     } catch (error) {
@@ -184,7 +176,7 @@ function App() {
 
       {!context.supported ? (
         <section className="empty">
-          <p>This extension currently supports React Docs pages under react.dev/learn and react.dev/reference/react.</p>
+          <p>This extension currently supports React Docs, Playwright Docs, and OpenAI Codex Docs.</p>
         </section>
       ) : (
         <>
@@ -210,11 +202,8 @@ function App() {
             </section>
           ) : null}
 
-          <button className="primary" type="button" onClick={() => void startIndex(false)} disabled={indexing}>
+          <button className="primary" type="button" onClick={() => void startIndex()} disabled={indexing}>
             {indexing ? 'Indexing pages...' : actionLabel}
-          </button>
-          <button className="secondary" type="button" onClick={() => void startIndex(true)} disabled={indexing}>
-            Debug index one page
           </button>
         </>
       )}

@@ -1,13 +1,16 @@
 import { browser } from 'wxt/browser';
 import { getAdapterForUrl } from '../src/adapters';
-import { pageProgressPercent, totalProgressPercent } from '../src/progress/calculations';
+import { isSubdirectoryPage, pageProgressPercent, totalProgressPercent } from '../src/progress/calculations';
+import { completeRangeAtPageEnd } from '../src/progress/completion';
 import { readingMapSegments, viewportMapSegment } from '../src/progress/reading-map';
-import { addViewedRange, mergeRanges, type ViewedRange } from '../src/progress/ranges';
+import { addViewedRange, mergeRanges, viewedHeight, type ViewedRange } from '../src/progress/ranges';
+import { scrollableAncestors } from '../src/progress/scroll-targets';
 import { APP_SETTINGS_STORAGE_KEY, normalizeAppSettings, type AppSettings } from '../src/settings/app-settings';
 import { DATA_ATTR, FLUSH_INTERVAL_MS } from '../src/shared/constants';
+import { waitForPageHydration } from '../src/shared/hydration';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
 import type { IndexLinksResponse, RuntimeMessage } from '../src/shared/messages';
-import { isIndexingDebugUrl, isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
+import { isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
 import type { PageIndexRecord, ProgressRecord } from '../src/storage/db';
 
 // 向 background 发送 runtime message。
@@ -48,16 +51,16 @@ type ProgressUiSnapshot = {
 };
 
 function afterHydration(): Promise<void> {
-  // React Docs 会先加载 HTML，再由 React 接管页面。等空闲时机再查 DOM，
-  // 可以减少和页面 hydration 抢时机导致找不到节点的概率。
-  return new Promise((resolve) => {
+  // 文档站点通常先加载 HTML，再由 React/Docusaurus 接管页面。
+  // 等页面框架 hydration 完成后再注入 UI，避免触发宿主 React hydration mismatch。
+  return waitForPageHydration().then(() => new Promise((resolve) => {
     const run = () => resolve();
     if (typeof window.requestIdleCallback === 'function') {
       window.requestIdleCallback(run, { timeout: 1200 });
       return;
     }
     globalThis.setTimeout(run, 500);
-  });
+  }));
 }
 
 // 读取正文区域的渲染高度；scrollHeight 和 bounding rect 取较大值，减少布局差异带来的低估。
@@ -79,6 +82,12 @@ function visibleRange(article: HTMLElement): ViewedRange | null {
   const start = visibleTop - rect.top;
   const end = visibleBottom - rect.top;
   return { start, end };
+}
+
+function isArticleScrolledToEnd(article: HTMLElement): boolean {
+  const rect = article.getBoundingClientRect();
+  const viewportBottom = window.innerHeight || document.documentElement.clientHeight;
+  return rect.bottom <= viewportBottom + 2;
 }
 
 // 注入本扩展页面内 UI 需要的 CSS。用 DATA_ATTR 防止重复插入 style 标签。
@@ -127,6 +136,7 @@ function injectStyles() {
     }
     .lfd-page-badge {
       display: inline-flex;
+      flex: 0 0 auto;
       align-items: center;
       margin-left: 7px;
       padding: 1px 6px;
@@ -136,6 +146,22 @@ function injectStyles() {
       font: 700 10px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       vertical-align: middle;
       white-space: nowrap;
+    }
+    .lfd-page-link-with-badge {
+      display: flex !important;
+      align-items: center;
+      gap: 7px;
+    }
+    .lfd-page-link-with-badge > :not([data-learn-from-doc="page-badge"]) {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .lfd-page-link-with-badge > .lfd-page-badge {
+      margin-left: 0;
+    }
+    .lfd-subdirectory-badge {
+      background: rgba(220, 38, 38, 0.1);
+      color: #dc2626;
     }
     .lfd-reading-map {
       position: fixed;
@@ -178,35 +204,6 @@ function formatPercent(value: number): string {
   return `${Math.round(value)}%`;
 }
 
-// debug 索引模式下，在测量页右下角显示状态面板，方便调试 content/background 消息。
-function renderDebugStatus(message: string, details?: unknown) {
-  let panel = document.querySelector<HTMLElement>('[data-learn-from-doc="debug-status"]');
-  if (!panel) {
-    panel = document.createElement('pre');
-    panel.setAttribute(DATA_ATTR, 'debug-status');
-    panel.style.cssText = [
-      'position:fixed',
-      'right:16px',
-      'bottom:16px',
-      'z-index:2147483647',
-      'max-width:520px',
-      'max-height:260px',
-      'overflow:auto',
-      'margin:0',
-      'padding:12px',
-      'border:1px solid rgba(15,23,42,.18)',
-      'border-radius:8px',
-      'background:#111827',
-      'color:#e5e7eb',
-      'font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace',
-      'white-space:pre-wrap',
-      'box-shadow:0 16px 40px rgba(15,23,42,.28)',
-    ].join(';');
-    document.documentElement.append(panel);
-  }
-  panel.textContent = `[learn-from-doc]\n${message}\n${details === undefined ? '' : JSON.stringify(details, null, 2)}`;
-}
-
 // 在 react.dev 左侧导航注入总进度卡片和每个页面链接后的进度 badge。
 async function renderProgressUi(siteId: string, snapshot?: ProgressUiSnapshot) {
   // 页面内 UI 是直接注入到 react.dev DOM 里的，不是 React 组件。
@@ -247,12 +244,29 @@ async function renderProgressUi(siteId: string, snapshot?: ProgressUiSnapshot) {
   totalCard.querySelector<HTMLElement>('.lfd-total-value')!.textContent = formatPercent(total);
   totalCard.querySelector<HTMLElement>('.lfd-total-fill')!.style.width = `${total}%`;
 
+  const targetAnchors = new Set(targets.pageLinkTargets.map((target) => target.anchor));
+  targets.sidebarRoot.querySelectorAll<HTMLElement>('[data-learn-from-doc="page-badge"]').forEach((badge) => {
+    const anchor = badge.closest('a');
+    if (!anchor || !targetAnchors.has(anchor)) {
+      anchor?.classList.remove('lfd-page-link-with-badge');
+      badge.remove();
+    }
+  });
+
   for (const target of targets.pageLinkTargets) {
+    const page = pageByUrl.get(target.url);
     const existing = target.anchor.querySelector<HTMLElement>('[data-learn-from-doc="page-badge"]');
     const badge = existing ?? document.createElement('span');
+    target.anchor.classList.add('lfd-page-link-with-badge');
     badge.className = 'lfd-page-badge';
     badge.setAttribute(DATA_ATTR, 'page-badge');
-    badge.textContent = formatPercent(pageProgressPercent(pageByUrl.get(target.url), progressByUrl.get(target.url)));
+    if (isSubdirectoryPage(page)) {
+      badge.classList.add('lfd-subdirectory-badge');
+      badge.textContent = '子目录';
+    } else {
+      badge.classList.remove('lfd-subdirectory-badge');
+      badge.textContent = formatPercent(pageProgressPercent(page, progressByUrl.get(target.url)));
+    }
     if (!existing) target.anchor.append(badge);
   }
 }
@@ -327,28 +341,33 @@ async function runIndexMeasurement() {
   // 不启动阅读 tracker，避免“机器打开页面”被误认为用户阅读。
   await afterHydration();
   const adapter = getAdapterForUrl(location.href);
+  const indexable = adapter?.isPageIndexable?.() ?? true;
   const article = adapter?.getArticleRoot();
-  const debug = isIndexingDebugUrl(location.href);
   lfdDebug('indexing measurement page loaded', {
     url: location.href,
-    debug,
     adapterFound: Boolean(adapter),
+    indexable,
     articleFound: Boolean(article),
   });
-  if (!adapter || !article) {
+  if (!adapter) {
     lfdDebug('indexing measurement skipped', {
-      reason: 'adapter or article not found',
-      adapterFound: Boolean(adapter),
-      articleFound: Boolean(article),
+      reason: 'adapter not found',
+    });
+    return;
+  }
+
+  if (indexable && !article) {
+    lfdDebug('indexing measurement skipped', {
+      reason: 'article not found',
     });
     return;
   }
 
   const payload = {
     url: normalizePageUrl(location.href),
-    // react.dev 页面标题通常带站点后缀，这里去掉后缀，保留更适合作为页面标题的部分。
+    // 站点标题通常带站点后缀，这里去掉后缀，保留更适合作为页面标题的部分。
     title: document.title.replace(/\s+[-–]\s+React$/, '').trim() || location.pathname,
-    contentHeight: Math.ceil(articleHeight(article)),
+    contentHeight: indexable && article ? Math.ceil(articleHeight(article)) : 0,
   };
   lfdDebug('indexing measurement payload', payload);
 
@@ -358,13 +377,11 @@ async function runIndexMeasurement() {
       payload,
     } satisfies RuntimeMessage);
     lfdDebug('indexing measurement message sent', { response });
-    if (debug) renderDebugStatus('Measurement sent to background.', { payload, response });
   } catch (error) {
     const details = {
       message: error instanceof Error ? error.message : String(error),
     };
     lfdDebug('indexing measurement message failed', details);
-    if (debug) renderDebugStatus('Measurement failed to send to background.', details);
   }
 }
 
@@ -402,6 +419,16 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     return undefined;
   }
 
+  if (isSubdirectoryPage(page)) {
+    removeReadingMap();
+    lfdDebug('reading tracker skipped: subdirectory placeholder page', {
+      siteId,
+      url: page.url,
+      contentHeight: page.contentHeight,
+    });
+    return undefined;
+  }
+
   const [sitePages, siteProgress] = await Promise.all([
     getPagesFromBackground(siteId),
     getProgressForSiteFromBackground(siteId),
@@ -429,7 +456,10 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
   const sample = () => {
     if (signal.aborted) return;
 
-    const range = visibleRange(article);
+    const visible = visibleRange(article);
+    const range = visible
+      ? completeRangeAtPageEnd(visible, isArticleScrolledToEnd(article), page.contentHeight)
+      : null;
     if (!range) {
       renderReadingMapIfEnabled(null);
       lfdTrace('reading sample skipped: article outside viewport', {
@@ -447,6 +477,20 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
         ranges,
         url: page.url,
       });
+      uiSnapshot = {
+        pages: uiSnapshot.pages,
+        progress: [
+          ...uiSnapshot.progress.filter((entry) => entry.url !== page.url),
+          {
+            siteId,
+            url: page.url,
+            viewedRanges: ranges,
+            viewedHeight: viewedHeight(ranges, page.contentHeight),
+            updatedAt: Date.now(),
+          },
+        ],
+      };
+      scheduleRenderUi();
     }
     renderReadingMapIfEnabled(range);
   };
@@ -506,7 +550,10 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
 
   await renderPageChrome();
 
-  window.addEventListener('scroll', sample, { passive: true, signal });
+  const scrollTargets = new Set<EventTarget>([window, document, ...scrollableAncestors(article)]);
+  scrollTargets.forEach((target) => {
+    target.addEventListener('scroll', sample, { passive: true, capture: target === document, signal });
+  });
   window.addEventListener('resize', sample, { passive: true, signal });
   const flushInterval = globalThis.setInterval(() => void flush(), FLUSH_INTERVAL_MS);
   document.addEventListener('visibilitychange', () => {
@@ -541,7 +588,11 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
 }
 
 export default defineContentScript({
-  matches: ['https://react.dev/*'],
+  matches: [
+    'https://react.dev/*',
+    'https://playwright.dev/docs/*',
+    'https://developers.openai.com/codex*',
+  ],
   runAt: 'document_idle',
   async main(ctx) {
     // content script 入口。WXT 会在匹配的页面注入它，但实际是否处理仍由 adapter 决定。
@@ -592,11 +643,6 @@ export default defineContentScript({
       if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
       // background 保存索引后通知原页面刷新 tracker。
       if (message.type === 'INDEX_PROGRESS_UPDATED') return startTracking('index-progress-updated');
-      // debug 索引模式使用：background 把保存结果发回测量页显示。
-      if (message.type === 'INDEX_DEBUG_STATUS') {
-        lfdDebug('index debug status received', message.payload);
-        renderDebugStatus(message.payload.message, message.payload.details);
-      }
       return undefined;
     });
 

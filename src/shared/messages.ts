@@ -19,15 +19,6 @@ export type IndexPageMeasuredMessage = {
   };
 };
 
-export type IndexDebugStatusMessage = {
-  type: 'INDEX_DEBUG_STATUS';
-  payload: {
-    ok: boolean;
-    message: string;
-    details?: unknown;
-  };
-};
-
 export type IndexRunProgressMessage = {
   type: 'INDEX_RUN_PROGRESS';
   payload: {
@@ -36,7 +27,6 @@ export type IndexRunProgressMessage = {
     total: number;
     currentTitle?: string;
     currentUrl?: string;
-    debug: boolean;
   };
 };
 
@@ -51,7 +41,7 @@ export type IndexOverview = {
 
 export type RuntimeMessage =
   | { type: 'COLLECT_INDEX_LINKS' }
-  | { type: 'START_INDEX'; tabId: number; debug?: boolean }
+  | { type: 'START_INDEX'; tabId: number }
   | { type: 'GET_INDEX_OVERVIEWS' }
   | { type: 'GET_SITE_SNAPSHOT'; siteId: string }
   | { type: 'GET_SITE_PAGES'; siteId: string }
@@ -64,7 +54,6 @@ export type RuntimeMessage =
   | { type: 'GET_APP_SETTINGS' }
   | { type: 'SAVE_APP_SETTINGS'; settings: Partial<AppSettings> }
   | { type: 'INDEX_PROGRESS_UPDATED'; siteId: string }
-  | IndexDebugStatusMessage
   | IndexRunProgressMessage
   | IndexPageMeasuredMessage;
 
