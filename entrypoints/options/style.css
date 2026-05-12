@@ -467,7 +467,7 @@ h2 {
 }
 
 .row.settings-header,
-.row.settings-header + .row {
+.row.settings-row {
   grid-template-columns: minmax(0, 1fr) 160px;
 }
 

@@ -50,17 +50,43 @@ type ProgressUiSnapshot = {
   progress: ProgressRecord[];
 };
 
-function afterHydration(): Promise<void> {
+const READING_HYDRATION_TIMEOUT_MS = 8000;
+const READING_IDLE_TIMEOUT_MS = 1200;
+const INDEXING_HYDRATION_TIMEOUT_MS = 500;
+const INDEXING_IDLE_TIMEOUT_MS = 200;
+
+function afterHydration(
+  hydrationTimeoutMs = READING_HYDRATION_TIMEOUT_MS,
+  idleTimeoutMs = READING_IDLE_TIMEOUT_MS,
+): Promise<void> {
   // 文档站点通常先加载 HTML，再由 React/Docusaurus 接管页面。
   // 等页面框架 hydration 完成后再注入 UI，避免触发宿主 React hydration mismatch。
-  return waitForPageHydration().then(() => new Promise((resolve) => {
+  return waitForPageHydration(document, hydrationTimeoutMs).then(() => new Promise((resolve) => {
     const run = () => resolve();
     if (typeof window.requestIdleCallback === 'function') {
-      window.requestIdleCallback(run, { timeout: 1200 });
+      window.requestIdleCallback(run, { timeout: idleTimeoutMs });
       return;
     }
-    globalThis.setTimeout(run, 500);
+    globalThis.setTimeout(run, Math.min(idleTimeoutMs, 500));
   }));
+}
+
+function navigationLoadMs(): number | undefined {
+  const entry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+  const loadMs = entry?.loadEventEnd;
+  return loadMs && loadMs > 0 ? Math.round(loadMs) : undefined;
+}
+
+function resourceCount(): number {
+  return performance.getEntriesByType('resource').length;
+}
+
+function topImageDurations(): number[] {
+  return (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
+    .filter((entry) => entry.initiatorType === 'img')
+    .map((entry) => Math.round(entry.duration))
+    .sort((a, b) => b - a)
+    .slice(0, 5);
 }
 
 // 读取正文区域的渲染高度；scrollHeight 和 bounding rect 取较大值，减少布局差异带来的低估。
@@ -339,7 +365,9 @@ async function collectIndexLinks(): Promise<IndexLinksResponse> {
 async function runIndexMeasurement() {
   // background 打开的测量 tab 会带索引 hash。这个模式只测正文高度并回传，
   // 不启动阅读 tracker，避免“机器打开页面”被误认为用户阅读。
-  await afterHydration();
+  const startedAt = performance.now();
+  await afterHydration(INDEXING_HYDRATION_TIMEOUT_MS, INDEXING_IDLE_TIMEOUT_MS);
+  const afterHydrationMs = Math.round(performance.now() - startedAt);
   const adapter = getAdapterForUrl(location.href);
   const indexable = adapter?.isPageIndexable?.() ?? true;
   const article = adapter?.getArticleRoot();
@@ -349,28 +377,28 @@ async function runIndexMeasurement() {
     indexable,
     articleFound: Boolean(article),
   });
-  if (!adapter) {
-    lfdDebug('indexing measurement skipped', {
-      reason: 'adapter not found',
-    });
-    return;
-  }
-
-  if (indexable && !article) {
-    lfdDebug('indexing measurement skipped', {
-      reason: 'article not found',
-    });
-    return;
-  }
-
+  const measureStartedAt = performance.now();
+  const skippedReason = !adapter
+    ? 'adapter not found'
+    : indexable && !article
+      ? 'article not found'
+      : !indexable
+        ? 'page not indexable'
+        : undefined;
   const payload = {
     url: normalizePageUrl(location.href),
     // 站点标题通常带站点后缀，这里去掉后缀，保留更适合作为页面标题的部分。
     title: document.title.replace(/\s+[-–]\s+React$/, '').trim() || location.pathname,
-    contentHeight: indexable && article ? Math.ceil(articleHeight(article)) : 0,
+    contentHeight: !skippedReason && article ? Math.ceil(articleHeight(article)) : 0,
+    skippedReason,
+    timing: {
+      afterHydrationMs,
+      articleMeasureMs: Math.round(performance.now() - measureStartedAt),
+      navigationLoadMs: navigationLoadMs(),
+      resourceCount: resourceCount(),
+      topImageDurations: topImageDurations(),
+    },
   };
-  lfdDebug('indexing measurement payload', payload);
-
   try {
     const response = await browser.runtime.sendMessage({
       type: 'INDEX_PAGE_MEASURED',
@@ -590,10 +618,10 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
 export default defineContentScript({
   matches: [
     'https://react.dev/*',
-    'https://playwright.dev/docs/*',
+    'https://playwright.dev/docs*',
     'https://developers.openai.com/codex*',
   ],
-  runAt: 'document_idle',
+  runAt: 'document_end',
   async main(ctx) {
     // content script 入口。WXT 会在匹配的页面注入它，但实际是否处理仍由 adapter 决定。
     if (!getAdapterForUrl(location.href)) return;

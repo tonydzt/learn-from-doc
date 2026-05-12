@@ -3,6 +3,7 @@ import { PlaywrightDevAdapter } from './playwright-dev';
 describe('PlaywrightDevAdapter', () => {
   it('matches Playwright Node docs paths only', () => {
     expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/docs/intro'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/docs'))).toBe(true);
     expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/docs/writing-tests'))).toBe(true);
     expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/python/docs/intro'))).toBe(false);
     expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/mcp/introduction'))).toBe(false);

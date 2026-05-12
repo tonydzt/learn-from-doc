@@ -221,9 +221,18 @@ function App() {
               />
               <i aria-hidden="true" />
             </label>
-            <div className="settings-table">
-              <div><span>showReadingMap</span><strong>{String(state.settings.showReadingMap)}</strong></div>
-            </div>
+            <label className="switch-row">
+              <span>
+                <strong>索引耗时调试日志</strong>
+                <small>Current status: {boolLabel(state.settings.debugIndexingLogs)}</small>
+              </span>
+              <input
+                checked={state.settings.debugIndexingLogs}
+                type="checkbox"
+                onChange={(event) => void saveSettings({ debugIndexingLogs: event.currentTarget.checked })}
+              />
+              <i aria-hidden="true" />
+            </label>
           </section>
         ) : (
           <section className="tables-layout">
@@ -322,9 +331,13 @@ function App() {
                     <span>Key</span>
                     <span>Value</span>
                   </div>
-                  <div className="row">
+                  <div className="row settings-row">
                     <span>showReadingMap</span>
                     <span>{String(state.settings.showReadingMap)}</span>
+                  </div>
+                  <div className="row settings-row">
+                    <span>debugIndexingLogs</span>
+                    <span>{String(state.settings.debugIndexingLogs)}</span>
                   </div>
                 </div>
               )}

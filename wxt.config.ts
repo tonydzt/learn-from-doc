@@ -10,7 +10,7 @@ export default defineConfig({
     permissions: ['tabs', 'storage', 'scripting'],
     host_permissions: [
       'https://react.dev/*',
-      'https://playwright.dev/docs/*',
+      'https://playwright.dev/docs*',
       'https://developers.openai.com/codex*',
     ],
   },

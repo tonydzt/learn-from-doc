@@ -7,10 +7,13 @@ describe('normalizeAppSettings', () => {
   });
 
   it('merges stored settings with defaults', () => {
-    expect(normalizeAppSettings({ showReadingMap: false })).toEqual({ showReadingMap: false });
+    expect(normalizeAppSettings({ showReadingMap: false, debugIndexingLogs: true })).toEqual({
+      showReadingMap: false,
+      debugIndexingLogs: true,
+    });
   });
 
   it('ignores invalid stored setting values', () => {
-    expect(normalizeAppSettings({ showReadingMap: 'no' })).toEqual(DEFAULT_APP_SETTINGS);
+    expect(normalizeAppSettings({ showReadingMap: 'no', debugIndexingLogs: 'yes' })).toEqual(DEFAULT_APP_SETTINGS);
   });
 });

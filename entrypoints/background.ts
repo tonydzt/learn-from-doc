@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { createIndexRunProgressStore } from '../src/indexing/run-progress';
-import { indexFailureConsolePayload } from '../src/indexing/source-tab-log';
+import { indexFailureConsolePayload, measurementTimeoutLogDetails } from '../src/indexing/source-tab-log';
 import { totalProgressPercent } from '../src/progress/calculations';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
 import type { IndexOverview, IndexPageMeasuredMessage, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../src/shared/messages';
@@ -26,6 +26,8 @@ const INDEX_TIMEOUT_MS = 30000;
 // 后端类比：background 是扩展里的“后端服务/API 层”。
 // popup、options、content script 都通过 runtime message 找它读写数据或触发索引。
 type PendingMeasurement = {
+  url: string;
+  startedAt: number;
   resolve: (payload: IndexPageMeasuredMessage['payload']) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof globalThis.setTimeout>;
@@ -44,6 +46,10 @@ function errorDetails(error: unknown): { message: string; stack?: string } {
     };
   }
   return { message: String(error) };
+}
+
+async function isDebugIndexingLogsEnabled(): Promise<boolean> {
+  return (await getAppSettings()).debugIndexingLogs;
 }
 
 // 向指定 tab 的 content script 发送消息，并把返回值转换成调用方期望的类型。
@@ -115,30 +121,59 @@ async function getSiteSnapshot(siteId: string): Promise<SiteSnapshot | undefined
 }
 
 // 等待某个测量 tab 回传 INDEX_PAGE_MEASURED；超时则清理等待状态并报错。
-function waitForMeasurement(tabId: number): Promise<IndexPageMeasuredMessage['payload']> {
+function waitForMeasurement(tabId: number, url: string, startedAt: number): Promise<IndexPageMeasuredMessage['payload']> {
   return new Promise((resolve, reject) => {
     const timeout = globalThis.setTimeout(() => {
       pendingMeasurements.delete(tabId);
-      lfdDebug('measurement timed out', { tabId, timeoutMs: INDEX_TIMEOUT_MS });
+      void isDebugIndexingLogsEnabled().then((enabled) => {
+        if (!enabled) return;
+        lfdDebug('measurement timed out', measurementTimeoutLogDetails({
+          tabId,
+          url,
+          startedAt,
+          now: Date.now(),
+          timeoutMs: INDEX_TIMEOUT_MS,
+        }));
+      });
       reject(new Error('Timed out while measuring page.'));
     }, INDEX_TIMEOUT_MS);
 
-    pendingMeasurements.set(tabId, { resolve, reject, timeout });
+    pendingMeasurements.set(tabId, { url, startedAt, resolve, reject, timeout });
   });
 }
 
 // 打开一个带索引 hash 的临时 tab，让 content script 测量页面正文高度。
 async function measurePage(url: string): Promise<{ tabId: number; payload: IndexPageMeasuredMessage['payload'] }> {
+  const startedAt = Date.now();
   lfdDebug('opening indexing tab', { url });
   const tab = await browser.tabs.create({
     url: withIndexingHash(url),
     active: false,
   });
   if (tab.id == null) throw new Error('Could not create indexing tab.');
+  const tabCreatedAt = Date.now();
 
   try {
-    const payload = await waitForMeasurement(tab.id);
-    lfdDebug('measured indexing tab', { tabId: tab.id, payload });
+    const payload = await waitForMeasurement(tab.id, url, startedAt);
+    const measuredAt = Date.now();
+    if (await isDebugIndexingLogsEnabled()) {
+      if (payload.skippedReason) {
+        lfdDebug('indexing measurement skipped page', {
+          tabId: tab.id,
+          url,
+          skippedReason: payload.skippedReason,
+        });
+      }
+      lfdDebug('measured indexing tab', {
+        url,
+        tabId: tab.id,
+        totalElapsedMs: measuredAt - startedAt,
+        tabCreateMs: tabCreatedAt - startedAt,
+        waitMeasurementMs: measuredAt - tabCreatedAt,
+        timeoutMs: INDEX_TIMEOUT_MS,
+        payload,
+      });
+    }
     return { tabId: tab.id, payload };
   } finally {
     // finally 确保测量成功或失败后都会清理临时 tab。
@@ -240,10 +275,13 @@ export default defineBackground(() => {
       // sender.tab.id 是这次异步测量的关联 ID。
       const tabId = sender.tab?.id;
       const pending = tabId == null ? undefined : pendingMeasurements.get(tabId);
-      lfdDebug('measurement message received', {
-        tabId,
-        matched: Boolean(pending),
-        payload: message.payload,
+      void isDebugIndexingLogsEnabled().then((enabled) => {
+        if (!enabled) return;
+        lfdDebug('measurement message received', {
+          tabId,
+          matched: Boolean(pending),
+          payload: message.payload,
+        });
       });
       if (!pending || tabId == null) return { ok: false, matched: false };
       pendingMeasurements.delete(tabId);

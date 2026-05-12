@@ -16,6 +16,14 @@ export type IndexPageMeasuredMessage = {
     url: string;
     title: string;
     contentHeight: number;
+    skippedReason?: string;
+    timing?: {
+      afterHydrationMs: number;
+      articleMeasureMs: number;
+      navigationLoadMs?: number;
+      resourceCount?: number;
+      topImageDurations?: number[];
+    };
   };
 };
 
