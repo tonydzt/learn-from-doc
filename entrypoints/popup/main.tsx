@@ -52,21 +52,32 @@ function App() {
   const [indexing, setIndexing] = React.useState(false);
   const [indexProgress, setIndexProgress] = React.useState<IndexRunProgress | null>(null);
 
+  const restoreIndexProgress = React.useCallback((progress: IndexRunProgress | null) => {
+    setIndexProgress(progress);
+    setIndexing(Boolean(progress && progress.phase !== 'done'));
+  }, []);
+
   const load = React.useCallback(async () => {
     // popup 每次打开都是一个短生命周期 React 页面。
     // 它先问 Chrome 当前激活 tab，再从 background 查询当前文档范围的索引快照。
     setState({ status: 'loading' });
     try {
+      const indexRunProgressPromise = browser.runtime.sendMessage({ type: 'GET_INDEX_RUN_PROGRESS' } satisfies RuntimeMessage) as Promise<IndexRunProgress | null>;
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (tab.id == null) throw new Error('No active tab found.');
       const scope = scopeFromTabUrl(tab.url);
       if (!scope) {
+        restoreIndexProgress(await indexRunProgressPromise);
         setState({ status: 'ready', context: { supported: false, indexed: false } });
         return;
       }
 
       const siteId = siteIdFor(scope.host, scope.scopeKey);
-      const snapshot = await browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as SiteSnapshot | undefined;
+      const [snapshot, indexRunProgress] = await Promise.all([
+        browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as Promise<SiteSnapshot | undefined>,
+        indexRunProgressPromise,
+      ]);
+      restoreIndexProgress(indexRunProgress);
       setState({
         status: 'ready',
         context: {
@@ -83,7 +94,7 @@ function App() {
         message: error instanceof Error ? error.message : 'Could not read the current page.',
       });
     }
-  }, []);
+  }, [restoreIndexProgress]);
 
   React.useEffect(() => {
     void load();
@@ -93,12 +104,13 @@ function App() {
     // 监听 background 广播的索引进度，用来在 popup 内显示“正在测第几页”。
     const listener = (message: RuntimeMessage) => {
       if (message.type !== 'INDEX_RUN_PROGRESS') return undefined;
-      setIndexProgress(message.payload);
+      restoreIndexProgress(message.payload);
+      if (message.payload.phase === 'done') void load();
       return undefined;
     };
     browser.runtime.onMessage.addListener(listener);
     return () => browser.runtime.onMessage.removeListener(listener);
-  }, []);
+  }, [load, restoreIndexProgress]);
 
   const startIndex = async () => {
     setIndexing(true);

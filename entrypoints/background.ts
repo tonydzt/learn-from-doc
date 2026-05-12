@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { createIndexRunProgressStore } from '../src/indexing/run-progress';
 import { indexFailureConsolePayload } from '../src/indexing/source-tab-log';
 import { totalProgressPercent } from '../src/progress/calculations';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
@@ -33,6 +34,7 @@ type PendingMeasurement = {
 // 索引时 background 会打开一个临时 tab 测量正文高度。
 // 这个 Map 用 tabId 把“等待中的 Promise”和“测量页面回传的消息”配对。
 const pendingMeasurements = new Map<number, PendingMeasurement>();
+const indexRunProgress = createIndexRunProgressStore();
 
 function errorDetails(error: unknown): { message: string; stack?: string } {
   if (error instanceof Error) {
@@ -51,6 +53,7 @@ function sendTabMessage<T>(tabId: number, message: RuntimeMessage): Promise<T> {
 
 // 向 popup/options 等扩展页面广播索引进度；没有接收方时忽略错误。
 async function emitIndexProgress(payload: Extract<RuntimeMessage, { type: 'INDEX_RUN_PROGRESS' }>['payload']) {
+  indexRunProgress.set(payload);
   lfdDebug('index run progress', payload);
   await browser.runtime.sendMessage({
     type: 'INDEX_RUN_PROGRESS',
@@ -252,6 +255,9 @@ export default defineBackground(() => {
     // options 管理页使用：获取所有站点索引的概览列表。
     if (message.type === 'GET_INDEX_OVERVIEWS') return getIndexOverviews();
 
+    // popup 使用：新打开时快速恢复当前索引运行进度，不等待下一次广播。
+    if (message.type === 'GET_INDEX_RUN_PROGRESS') return indexRunProgress.get();
+
     // popup/options 管理页使用：一次拿到当前站点的 site/pages/progress。
     if (message.type === 'GET_SITE_SNAPSHOT') return getSiteSnapshot(message.siteId);
 
@@ -296,6 +302,7 @@ export default defineBackground(() => {
 
     // popup 使用：点击创建/重建索引时触发完整索引流程。
     return startIndex(message.tabId).catch(async (error: unknown) => {
+      indexRunProgress.clearSoon();
       await logIndexFailureToSourceTab(message.tabId, error);
       return {
         ok: false,

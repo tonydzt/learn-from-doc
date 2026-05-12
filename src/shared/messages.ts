@@ -42,6 +42,7 @@ export type IndexOverview = {
 export type RuntimeMessage =
   | { type: 'COLLECT_INDEX_LINKS' }
   | { type: 'START_INDEX'; tabId: number }
+  | { type: 'GET_INDEX_RUN_PROGRESS' }
   | { type: 'GET_INDEX_OVERVIEWS' }
   | { type: 'GET_SITE_SNAPSHOT'; siteId: string }
   | { type: 'GET_SITE_PAGES'; siteId: string }
