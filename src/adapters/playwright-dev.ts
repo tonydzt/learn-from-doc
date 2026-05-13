@@ -41,9 +41,19 @@ export const PlaywrightDevAdapter: DocSiteAdapter = {
     const root = sidebarRoot();
     if (!root) return;
 
-    const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button[aria-expanded="false"]'));
-    buttons.forEach((button) => button.click());
-    if (buttons.length > 0) {
+    const clickExpandableControls = () => {
+      const controls = Array.from(root.querySelectorAll<HTMLElement>([
+        'button[aria-expanded="false"]',
+        'a[role="button"][aria-expanded="false"]',
+        'a.menu__link--sublist[aria-expanded="false"]',
+      ].join(', ')));
+      controls.forEach((control) => control.click());
+      return controls.length;
+    };
+
+    for (let i = 0; i < 8; i += 1) {
+      const clicked = clickExpandableControls();
+      if (clicked === 0) break;
       await new Promise((resolve) => window.setTimeout(resolve, 180));
     }
   },

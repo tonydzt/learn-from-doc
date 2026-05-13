@@ -42,4 +42,69 @@ describe('PlaywrightDevAdapter', () => {
 
     expect(PlaywrightDevAdapter.getArticleRoot()?.textContent).toBe('Playwright article');
   });
+
+  it('expands anchor-based sidebar toggles before collecting links', async () => {
+    document.body.innerHTML = `
+      <aside>
+        <nav aria-label="Docs sidebar">
+          <a href="https://playwright.dev/docs/intro">Installation</a>
+          <a class="menu__link menu__link--sublist menu__link--sublist-caret" role="button" aria-expanded="false" href="#">Integrations</a>
+        </nav>
+      </aside>
+      <main><article>Body</article></main>
+    `;
+    const nav = document.querySelector('nav[aria-label="Docs sidebar"]');
+    const integrations = nav?.querySelector<HTMLAnchorElement>('a[role="button"]');
+    integrations?.addEventListener('click', (event) => {
+      event.preventDefault();
+      integrations.setAttribute('aria-expanded', 'true');
+      integrations.insertAdjacentHTML('afterend', `
+        <a href="https://playwright.dev/docs/docker">Docker</a>
+        <a href="https://playwright.dev/docs/ci">Continuous Integration</a>
+        <a href="https://playwright.dev/docs/selenium-grid">Selenium Grid (experimental)</a>
+      `);
+    });
+
+    expect(PlaywrightDevAdapter.getSidebarLinks().map((link) => link.url)).not.toContain('https://playwright.dev/docs/docker');
+
+    await PlaywrightDevAdapter.expandLazyNavigation();
+
+    expect(PlaywrightDevAdapter.getSidebarLinks().map((link) => link.url)).toEqual([
+      'https://playwright.dev/docs/intro',
+      'https://playwright.dev/docs/docker',
+      'https://playwright.dev/docs/ci',
+      'https://playwright.dev/docs/selenium-grid',
+    ]);
+  });
+
+  it('keeps expanding newly rendered collapsed sidebar toggles', async () => {
+    document.body.innerHTML = `
+      <aside>
+        <nav aria-label="Docs sidebar">
+          <a href="https://playwright.dev/docs/intro">Installation</a>
+          <a class="menu__link menu__link--sublist menu__link--sublist-caret" role="button" aria-expanded="false" href="#">Integrations</a>
+        </nav>
+      </aside>
+      <main><article>Body</article></main>
+    `;
+    const nav = document.querySelector('nav[aria-label="Docs sidebar"]');
+    const integrations = nav?.querySelector<HTMLAnchorElement>('a[role="button"]');
+    integrations?.addEventListener('click', (event) => {
+      event.preventDefault();
+      integrations.setAttribute('aria-expanded', 'true');
+      integrations.insertAdjacentHTML('afterend', `
+        <a class="menu__link menu__link--sublist" role="button" aria-expanded="false" href="#">Containers</a>
+      `);
+      nav?.querySelector<HTMLAnchorElement>('a[aria-expanded="false"]')?.addEventListener('click', (nestedEvent) => {
+        nestedEvent.preventDefault();
+        const containers = nestedEvent.currentTarget as HTMLAnchorElement;
+        containers.setAttribute('aria-expanded', 'true');
+        containers.insertAdjacentHTML('afterend', '<a href="https://playwright.dev/docs/docker">Docker</a>');
+      });
+    });
+
+    await PlaywrightDevAdapter.expandLazyNavigation();
+
+    expect(PlaywrightDevAdapter.getSidebarLinks().map((link) => link.url)).toContain('https://playwright.dev/docs/docker');
+  });
 });
