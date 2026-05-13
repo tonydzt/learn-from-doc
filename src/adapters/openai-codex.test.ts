@@ -1,11 +1,13 @@
 import { OpenAICodexAdapter } from './openai-codex';
 
 describe('OpenAICodexAdapter', () => {
-  it('matches OpenAI Codex docs paths only', () => {
+  it('matches OpenAI developer paths for Codex index placeholders', () => {
     expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/codex'))).toBe(true);
     expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/codex/quickstart'))).toBe(true);
-    expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/api/docs'))).toBe(false);
-    expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/cookbook'))).toBe(false);
+    expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/community'))).toBe(true);
+    expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/community/meetups'))).toBe(true);
+    expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/api/docs'))).toBe(true);
+    expect(OpenAICodexAdapter.matches(new URL('https://developers.openai.com/cookbook'))).toBe(true);
     expect(OpenAICodexAdapter.matches(new URL('https://example.com/codex'))).toBe(false);
   });
 
@@ -17,6 +19,7 @@ describe('OpenAICodexAdapter', () => {
         <a href="https://developers.openai.com/codex/quickstart">Quickstart</a>
         <a href="https://developers.openai.com/api/docs">API docs</a>
         <a href="https://developers.openai.com/cookbook/examples/gpt-5/codex_prompting_guide">Cookbook</a>
+        <a href="https://openai.com">Company</a>
       </nav>
       <main><article id="mainContent">Body</article></main>
     `;
@@ -29,6 +32,26 @@ describe('OpenAICodexAdapter', () => {
     expect(OpenAICodexAdapter.getSidebarLinks().map((link) => link.url)).toEqual([
       'https://developers.openai.com/codex',
       'https://developers.openai.com/codex/quickstart',
+      'https://developers.openai.com/api/docs',
+      'https://developers.openai.com/cookbook/examples/gpt-5/codex_prompting_guide',
+    ]);
+  });
+
+  it('includes Codex sidebar links that jump to child navigation directories', () => {
+    document.body.innerHTML = `
+      <nav data-left-nav data-left-nav-id="/codex">
+        <a href="https://developers.openai.com/codex">Overview</a>
+        <a href="https://developers.openai.com/codex/use-cases">Explore use cases</a>
+        <a href="https://developers.openai.com/community">Community</a>
+        <a href="https://developers.openai.com/community/meetups">Meetups</a>
+      </nav>
+    `;
+
+    expect(OpenAICodexAdapter.getSidebarLinks().map((link) => link.url)).toEqual([
+      'https://developers.openai.com/codex',
+      'https://developers.openai.com/codex/use-cases',
+      'https://developers.openai.com/community',
+      'https://developers.openai.com/community/meetups',
     ]);
   });
 

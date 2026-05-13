@@ -5,10 +5,6 @@ function sidebarRoot(): Element | null {
   return document.querySelector('nav[data-left-nav][data-left-nav-id="/codex"]');
 }
 
-function isCodexPath(pathname: string): boolean {
-  return pathname === '/codex' || pathname.startsWith('/codex/');
-}
-
 function linkTitle(anchor: HTMLAnchorElement): string {
   return (anchor.textContent ?? '').replace(/\s+/g, ' ').trim() || anchor.href;
 }
@@ -17,7 +13,7 @@ export const OpenAICodexAdapter: DocSiteAdapter = {
   id: 'openai-codex',
 
   matches(url) {
-    return url.hostname === 'developers.openai.com' && isCodexPath(url.pathname);
+    return url.hostname === 'developers.openai.com';
   },
 
   getDocScopeForUrl(url) {
@@ -55,7 +51,7 @@ export const OpenAICodexAdapter: DocSiteAdapter = {
 
     for (const element of links) {
       const url = new URL(element.href, location.href);
-      if (url.hostname !== 'developers.openai.com' || !isCodexPath(url.pathname)) continue;
+      if (url.hostname !== 'developers.openai.com') continue;
 
       const normalized = normalizePageUrl(url.toString());
       if (!byUrl.has(normalized)) {

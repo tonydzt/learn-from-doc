@@ -619,7 +619,7 @@ export default defineContentScript({
   matches: [
     'https://react.dev/*',
     'https://playwright.dev/docs*',
-    'https://developers.openai.com/codex*',
+    'https://developers.openai.com/*',
   ],
   runAt: 'document_end',
   async main(ctx) {
