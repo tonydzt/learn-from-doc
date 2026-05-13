@@ -25,6 +25,9 @@ export type MessageKey =
   | 'manager.readingMapDescription'
   | 'manager.showReadingMap'
   | 'manager.debugIndexingLogs'
+  | 'manager.siteSettings'
+  | 'manager.siteSettingsDescription'
+  | 'manager.enableSiteReadingProgress'
   | 'manager.currentStatus'
   | 'manager.language'
   | 'manager.languageDescription'
@@ -120,6 +123,9 @@ export const EN_MESSAGES: Messages = {
   'manager.readingMapDescription': 'Show the slim page map on supported indexed documentation pages.',
   'manager.showReadingMap': 'Show right-side reading map',
   'manager.debugIndexingLogs': 'Index timing debug logs',
+  'manager.siteSettings': 'Site settings',
+  'manager.siteSettingsDescription': 'Controls for this indexed documentation site.',
+  'manager.enableSiteReadingProgress': 'Enable reading progress',
   'manager.currentStatus': 'Current status: {status}',
   'manager.language': 'Language',
   'manager.languageDescription': 'Choose the display language for extension pages and injected reading UI.',
@@ -199,6 +205,9 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.readingMapDescription': '在支持且已索引的文档页面显示细长页面地图。',
     'manager.showReadingMap': '显示右侧阅读地图',
     'manager.debugIndexingLogs': '索引耗时调试日志',
+    'manager.siteSettings': '站点设置',
+    'manager.siteSettingsDescription': '当前已索引文档站点的配置。',
+    'manager.enableSiteReadingProgress': '启用阅读进度',
     'manager.currentStatus': '当前状态：{status}',
     'manager.language': '语言',
     'manager.languageDescription': '选择扩展页面和注入阅读界面的显示语言。',

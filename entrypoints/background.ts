@@ -13,9 +13,11 @@ import {
   getPage,
   getPages,
   getProgressForSite,
+  getSiteSettings,
   getSite,
   replaceSitePages,
   saveProgress,
+  saveSiteSettings,
   type PageIndexRecord,
   type SiteRecord,
 } from '../src/storage/db';
@@ -262,6 +264,18 @@ async function startIndex(tabId: number): Promise<StartIndexResult> {
   return { ok: true, site, pages };
 }
 
+async function notifySiteSettingsUpdated(siteId: string, settings: Awaited<ReturnType<typeof saveSiteSettings>>) {
+  const tabs = await browser.tabs.query({});
+  await Promise.all(tabs.map((tab) => {
+    if (tab.id == null) return undefined;
+    return browser.tabs.sendMessage(tab.id, {
+      type: 'SITE_SETTINGS_UPDATED',
+      siteId,
+      settings,
+    } satisfies RuntimeMessage).catch(() => undefined);
+  }));
+}
+
 export default defineBackground(() => {
   // WXT 的 defineBackground 会把这里注册成 MV3 service worker 入口。
   // onMessage 相当于一个按 message.type 分发的轻量 RPC router。
@@ -308,6 +322,17 @@ export default defineBackground(() => {
 
     // content script 和页面内进度 UI 使用：读取某个文档范围下的全部阅读进度。
     if (message.type === 'GET_SITE_PROGRESS') return getProgressForSite(message.siteId);
+
+    // options/content script 使用：读取某个文档范围的站点级配置。
+    if (message.type === 'GET_SITE_SETTINGS') return getSiteSettings(message.siteId);
+
+    // options 管理页使用：保存站点级配置，并通知已打开的阅读页刷新状态。
+    if (message.type === 'SAVE_SITE_SETTINGS') {
+      return saveSiteSettings(message.siteId, message.settings).then(async (settings) => {
+        await notifySiteSettingsUpdated(message.siteId, settings);
+        return settings;
+      });
+    }
 
     // content script 使用：滚动采样后保存当前页面的阅读进度。
     if (message.type === 'SAVE_PROGRESS_RECORD') {

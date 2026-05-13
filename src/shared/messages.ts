@@ -1,5 +1,6 @@
 import type { PageIndexRecord, SiteRecord, ProgressRecord } from '../storage/db';
 import type { AppSettings } from '../settings/app-settings';
+import type { SiteSettings } from '../settings/site-settings';
 
 // RuntimeMessage 是扩展内部的消息契约，类似后端项目里的 API DTO。
 // popup/options/content script 不能直接调用彼此的函数，只能通过这些 message type 通信。
@@ -56,6 +57,8 @@ export type RuntimeMessage =
   | { type: 'GET_SITE_PAGES'; siteId: string }
   | { type: 'GET_PAGE_RECORD'; siteId: string; url: string }
   | { type: 'GET_SITE_PROGRESS'; siteId: string }
+  | { type: 'GET_SITE_SETTINGS'; siteId: string }
+  | { type: 'SAVE_SITE_SETTINGS'; siteId: string; settings: Partial<SiteSettings> }
   | { type: 'SAVE_PROGRESS_RECORD'; siteId: string; url: string; ranges: import('../progress/ranges').ViewedRange[]; contentHeight: number }
   | { type: 'DELETE_SITE_INDEX'; siteId: string }
   | { type: 'CLEAR_SITE_PROGRESS'; siteId: string }
@@ -63,6 +66,7 @@ export type RuntimeMessage =
   | { type: 'GET_APP_SETTINGS' }
   | { type: 'SAVE_APP_SETTINGS'; settings: Partial<AppSettings> }
   | { type: 'INDEX_PROGRESS_UPDATED'; siteId: string }
+  | { type: 'SITE_SETTINGS_UPDATED'; siteId: string; settings: SiteSettings }
   | IndexRunProgressMessage
   | IndexPageMeasuredMessage;
 

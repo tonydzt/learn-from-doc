@@ -7,13 +7,14 @@ import { readingMapSegments, viewportMapSegment } from '../src/progress/reading-
 import { addViewedRange, mergeRanges, viewedHeight, type ViewedRange } from '../src/progress/ranges';
 import { scrollableAncestors } from '../src/progress/scroll-targets';
 import { APP_SETTINGS_STORAGE_KEY, normalizeAppSettings, type AppSettings } from '../src/settings/app-settings';
+import type { SiteSettings } from '../src/settings/site-settings';
 import { DATA_ATTR, FLUSH_INTERVAL_MS } from '../src/shared/constants';
 import { waitForPageHydration } from '../src/shared/hydration';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
 import type { IndexLinksResponse, RuntimeMessage } from '../src/shared/messages';
 import { isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
 import type { PageIndexRecord, ProgressRecord } from '../src/storage/db';
-import { shouldStartTrackingOnVisibilityChange } from '../src/content/reading-lifecycle';
+import { shouldStartReadingTracker, shouldStartTrackingOnVisibilityChange, shouldUsePrefetchedSiteSettings } from '../src/content/reading-lifecycle';
 
 // 向 background 发送 runtime message。
 // content script 不直接访问数据库和扩展管理页，统一通过 background 做数据读写和调度。
@@ -34,6 +35,11 @@ function getPageFromBackground(siteId: string, url: string): Promise<PageIndexRe
 // 读取某个文档范围下的全部阅读进度，用来计算总进度和页面 badge。
 function getProgressForSiteFromBackground(siteId: string): Promise<ProgressRecord[]> {
   return sendRuntimeMessage<ProgressRecord[]>({ type: 'GET_SITE_PROGRESS', siteId });
+}
+
+// 读取站点级配置，用来决定该文档范围是否启用阅读进度功能。
+function getSiteSettingsFromBackground(siteId: string): Promise<SiteSettings> {
+  return sendRuntimeMessage<SiteSettings>({ type: 'GET_SITE_SETTINGS', siteId });
 }
 
 // 保存当前页面的阅读区间；真正写 IndexedDB 的动作由 background 完成。
@@ -305,6 +311,16 @@ function removeReadingMap() {
   document.querySelector<HTMLElement>('[data-learn-from-doc="reading-map"]')?.remove();
 }
 
+// 移除所有注入到文档页面里的阅读进度 UI。站点级总开关关闭时会调用。
+function removeProgressUi() {
+  document.querySelector<HTMLElement>('[data-learn-from-doc="total"]')?.remove();
+  document.querySelectorAll<HTMLElement>('[data-learn-from-doc="page-badge"]').forEach((badge) => {
+    badge.closest('a')?.classList.remove('lfd-page-link-with-badge');
+    badge.remove();
+  });
+  removeReadingMap();
+}
+
 // 渲染右侧阅读地图：已读区间显示为绿色段，当前 viewport 显示为浅色浮层。
 function renderReadingMap(ranges: ViewedRange[], viewportRange: ViewedRange | null, contentHeight: number) {
   if (!Number.isFinite(contentHeight) || contentHeight <= 0) {
@@ -419,6 +435,10 @@ async function runIndexMeasurement() {
 async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerStop | undefined> {
   // 普通阅读模式的生命周期：定位正文 -> 采样可见区间 -> 合并到内存 -> 定期 flush 到 background。
   // AbortSignal 用来在 SPA 路由切换或 content script 失效时停止旧 tracker。
+  const initialScope = getAdapterForUrl(location.href)?.getDocScope();
+  const prefetchedSiteId = initialScope ? siteIdFor(initialScope.host, initialScope.scopeKey) : undefined;
+  const prefetchedSiteSettings = prefetchedSiteId ? getSiteSettingsFromBackground(prefetchedSiteId) : undefined;
+
   await afterHydration();
   if (signal.aborted) return undefined;
 
@@ -435,8 +455,21 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
   if (!adapter || !scope || !article) return undefined;
 
   const siteId = siteIdFor(scope.host, scope.scopeKey);
-  const page = await getPageFromBackground(siteId, normalizePageUrl(location.href));
+  const siteSettingsPromise = shouldUsePrefetchedSiteSettings(prefetchedSiteId, siteId) && prefetchedSiteSettings
+    ? prefetchedSiteSettings
+    : getSiteSettingsFromBackground(siteId);
+  const pagePromise = getPageFromBackground(siteId, normalizePageUrl(location.href));
+  const [siteSettings, page] = await Promise.all([siteSettingsPromise, pagePromise]);
   if (signal.aborted) return undefined;
+
+  if (!shouldStartReadingTracker(siteSettings.readingProgressEnabled)) {
+    removeProgressUi();
+    lfdDebug('reading tracker skipped: site reading progress disabled', {
+      siteId,
+      url: normalizePageUrl(location.href),
+    });
+    return undefined;
+  }
 
   if (!page) {
     // 已支持但当前 URL 不在索引里时不注入 UI、不记录进度，避免污染未索引页面。
@@ -614,7 +647,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     observer.disconnect();
     browser.storage.onChanged.removeListener(onSettingsChanged);
     await flush(false);
-    removeReadingMap();
+    removeProgressUi();
   };
 }
 
@@ -631,6 +664,11 @@ export default defineContentScript({
 
     let activeTracker: { controller: AbortController; stop: ReadingTrackerStop } | undefined;
     let routeVersion = 0;
+
+    const currentSiteId = () => {
+      const scope = getAdapterForUrl(location.href)?.getDocScope();
+      return scope ? siteIdFor(scope.host, scope.scopeKey) : undefined;
+    };
 
     const stopTracking = async () => {
       // 停止当前阅读 tracker：中断事件监听、flush 未保存进度、移除页面内 UI。
@@ -674,6 +712,10 @@ export default defineContentScript({
       if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
       // background 保存索引后通知原页面刷新 tracker。
       if (message.type === 'INDEX_PROGRESS_UPDATED') return startTracking('index-progress-updated');
+      if (message.type === 'SITE_SETTINGS_UPDATED' && message.siteId === currentSiteId()) {
+        if (message.settings.readingProgressEnabled) return startTracking('site-settings-enabled');
+        return stopTracking().then(removeProgressUi);
+      }
       return undefined;
     });
 

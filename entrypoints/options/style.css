@@ -409,6 +409,31 @@ h2 {
   margin-bottom: 18px;
 }
 
+.site-settings-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid rgba(15, 118, 110, .16);
+  border-radius: 8px;
+  background: rgba(240, 253, 250, .56);
+}
+
+.site-settings-section h2 {
+  margin-bottom: 7px;
+}
+
+.site-settings-section p:last-child {
+  margin: 0;
+}
+
+.compact-switch {
+  margin: 0;
+  background: rgba(255, 255, 255, .74);
+}
+
 .stats div {
   min-width: 0;
   padding: 13px;
@@ -571,6 +596,10 @@ h2 {
   }
 
   .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .site-settings-section {
     grid-template-columns: 1fr;
   }
 

@@ -4,6 +4,7 @@ import { browser } from 'wxt/browser';
 import { LANGUAGE_NAMES, t, type MessageKey } from '../../src/i18n/messages';
 import { pageProgressPercent } from '../../src/progress/calculations';
 import { SUPPORTED_LANGUAGES, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
+import type { SiteSettings } from '../../src/settings/site-settings';
 import type { IndexOverview, RuntimeMessage, SiteSnapshot } from '../../src/shared/messages';
 import './style.css';
 
@@ -18,6 +19,7 @@ type ManagerState =
     tableView: TableView;
     overviews: IndexOverview[];
     selected?: SiteSnapshot;
+    siteSettings?: SiteSettings;
     settings: AppSettings;
   }
   | { status: 'error'; message: string };
@@ -79,7 +81,10 @@ function App() {
       const selected = selectedSiteId
         ? await browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId: selectedSiteId } satisfies RuntimeMessage) as SiteSnapshot | undefined
         : undefined;
-      setState({ status: 'ready', module, tableView, overviews, selected, settings });
+      const siteSettings = selected
+        ? await browser.runtime.sendMessage({ type: 'GET_SITE_SETTINGS', siteId: selected.site.siteId } satisfies RuntimeMessage) as SiteSettings
+        : undefined;
+      setState({ status: 'ready', module, tableView, overviews, selected, siteSettings, settings });
     } catch (error) {
       setState({
         status: 'error',
@@ -106,6 +111,16 @@ function App() {
     if (state.status !== 'ready') return;
     const next = await browser.runtime.sendMessage({ type: 'SAVE_APP_SETTINGS', settings } satisfies RuntimeMessage) as AppSettings;
     setState({ ...state, settings: next });
+  };
+
+  const saveSiteSettings = async (settings: Partial<SiteSettings>) => {
+    if (state.status !== 'ready' || !state.selected) return;
+    const next = await browser.runtime.sendMessage({
+      type: 'SAVE_SITE_SETTINGS',
+      siteId: state.selected.site.siteId,
+      settings,
+    } satisfies RuntimeMessage) as SiteSettings;
+    setState({ ...state, siteSettings: next });
   };
 
   const selectSite = async (siteId: string) => {
@@ -275,6 +290,8 @@ function App() {
                   fmtPercent={fmtPercent}
                   language={language}
                   selected={state.selected}
+                  siteSettings={state.siteSettings}
+                  saveSiteSettings={(settings) => void saveSiteSettings(settings)}
                   totalPages={totalPages}
                   totalProgressRows={totalProgressRows}
                 />
@@ -354,6 +371,10 @@ function App() {
                     <span>language</span>
                     <span>{state.settings.language}</span>
                   </div>
+                  <div className="row settings-row">
+                    <span>readingProgressEnabled</span>
+                    <span>{String(state.siteSettings?.readingProgressEnabled ?? true)}</span>
+                  </div>
                 </div>
               )}
             </section>
@@ -366,6 +387,7 @@ function App() {
 
 type OverviewProps = {
   selected?: SiteSnapshot;
+  siteSettings?: SiteSettings;
   language: LanguageCode;
   totalPages: number;
   totalProgressRows: number;
@@ -375,6 +397,7 @@ type OverviewProps = {
   deleteSelected(): void;
   clearSelectedProgress(): void;
   clearAllProgress(): void;
+  saveSiteSettings(settings: Partial<SiteSettings>): void;
 };
 
 function OverviewTable(props: OverviewProps) {
@@ -387,6 +410,28 @@ function OverviewTable(props: OverviewProps) {
 
   return (
     <>
+      <section className="site-settings-section">
+        <div>
+          <p className="section-kicker">{t(props.language, 'manager.siteSettings')}</p>
+          <h2>{props.selected.site.scopeTitle}</h2>
+          <p className="muted">{t(props.language, 'manager.siteSettingsDescription')}</p>
+        </div>
+        <label className="switch-row compact-switch">
+          <span>
+            <strong>{t(props.language, 'manager.enableSiteReadingProgress')}</strong>
+            <small>{t(props.language, 'manager.currentStatus', {
+              status: boolLabel(props.language, props.siteSettings?.readingProgressEnabled ?? true),
+            })}</small>
+          </span>
+          <input
+            checked={props.siteSettings?.readingProgressEnabled ?? true}
+            type="checkbox"
+            onChange={(event) => props.saveSiteSettings({ readingProgressEnabled: event.currentTarget.checked })}
+          />
+          <i aria-hidden="true" />
+        </label>
+      </section>
+
       <div className="stats">
         <div><span>{t(props.language, 'manager.sites')}</span><strong>1</strong></div>
         <div><span>{t(props.language, 'manager.pages')}</span><strong>{props.selected.pages.length} / {props.totalPages}</strong></div>

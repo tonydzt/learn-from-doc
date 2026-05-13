@@ -1,7 +1,8 @@
 import { mergeRanges, viewedHeight, type ViewedRange } from '../progress/ranges';
+import { normalizeSiteSettings, type SiteSettings } from '../settings/site-settings';
 
 const DB_NAME = 'learn-from-doc';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export type SiteRecord = {
   siteId: string;
@@ -28,7 +29,11 @@ export type ProgressRecord = {
   updatedAt: number;
 };
 
-type StoreName = 'sites' | 'pages' | 'progress';
+export type SiteSettingsRecord = SiteSettings & {
+  siteId: string;
+};
+
+type StoreName = 'sites' | 'pages' | 'progress' | 'siteSettings';
 
 let dbPromise: Promise<IDBDatabase> | undefined;
 
@@ -57,6 +62,10 @@ function openDb(): Promise<IDBDatabase> {
         // progress 和 pages 使用同样的主键，方便用同一个 siteId/url 对齐索引页和阅读进度。
         const progress = db.createObjectStore('progress', { keyPath: ['siteId', 'url'] });
         progress.createIndex('bySite', 'siteId');
+      }
+      if (!db.objectStoreNames.contains('siteSettings')) {
+        // siteSettings 保存站点级功能开关。它和 site 元数据分开，后续增加网站级配置时不污染索引记录。
+        db.createObjectStore('siteSettings', { keyPath: 'siteId' });
       }
     };
 
@@ -150,6 +159,30 @@ export async function getProgressForSite(siteId: string): Promise<ProgressRecord
   return tx(['progress'], 'readonly', ({ progress }) => indexAll<ProgressRecord>(progress, 'bySite', siteId));
 }
 
+// 读取某个文档范围的站点级配置。没有记录时返回默认配置，保持旧版本行为不变。
+export async function getSiteSettings(siteId: string): Promise<SiteSettingsRecord> {
+  return tx(['siteSettings'], 'readonly', async ({ siteSettings }) => {
+    const stored = await requestToPromise<SiteSettingsRecord | undefined>(siteSettings.get(siteId));
+    return {
+      siteId,
+      ...normalizeSiteSettings(stored),
+    };
+  });
+}
+
+// 保存站点级配置。调用方可以只传要修改的字段。
+export async function saveSiteSettings(siteId: string, settings: Partial<SiteSettings>): Promise<SiteSettingsRecord> {
+  const current = await getSiteSettings(siteId);
+  const next: SiteSettingsRecord = {
+    siteId,
+    ...normalizeSiteSettings({ ...current, ...settings }),
+  };
+  await tx(['siteSettings'], 'readwrite', async ({ siteSettings }) => {
+    siteSettings.put(next);
+  });
+  return next;
+}
+
 // 保存单页阅读进度；调用方传入已浏览区间，这里负责合并区间并计算已浏览高度。
 export async function saveProgress(siteId: string, url: string, ranges: ViewedRange[], contentHeight: number): Promise<ProgressRecord> {
   // progress 存的是“已看过的正文高度区间”，不是滚动次数或最后位置；
@@ -175,8 +208,9 @@ export async function deleteSiteIndex(siteId: string): Promise<void> {
     getProgressForSite(siteId),
   ]);
 
-  await tx(['sites', 'pages', 'progress'], 'readwrite', async ({ sites, pages: pageStore, progress: progressStore }) => {
+  await tx(['sites', 'pages', 'progress', 'siteSettings'], 'readwrite', async ({ sites, pages: pageStore, progress: progressStore, siteSettings }) => {
     sites.delete(siteId);
+    siteSettings.delete(siteId);
     // pages/progress 的主键都是 [siteId, url]，删除时也必须使用复合主键数组。
     pages.forEach((page) => pageStore.delete([siteId, page.url]));
     progress.forEach((record) => progressStore.delete([siteId, record.url]));
