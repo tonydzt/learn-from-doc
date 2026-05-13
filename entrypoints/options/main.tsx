@@ -5,18 +5,26 @@ import { LANGUAGE_NAMES, t, type MessageKey } from '../../src/i18n/messages';
 import { pageProgressPercent } from '../../src/progress/calculations';
 import { SUPPORTED_LANGUAGES, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
 import type { SiteSettings } from '../../src/settings/site-settings';
-import type { IndexOverview, RuntimeMessage, SiteSnapshot } from '../../src/shared/messages';
+import type {
+  IndexOverview,
+  PortableExportResult,
+  PortableImportPreviewResult,
+  PortableImportResultMessage,
+  RuntimeMessage,
+  SiteSnapshot,
+} from '../../src/shared/messages';
+import { parsePortableData, portableSerializedBlobPart } from '../../src/storage/portable-data';
 import './style.css';
 
-type ModuleKey = 'settings' | 'tables';
-type TableView = 'overview' | 'sites' | 'pages' | 'progress' | 'settings';
+type PageKey = 'settings' | 'sites' | 'siteDetail';
+type DetailTab = 'overview' | 'pages' | 'progress';
 
 type ManagerState =
   | { status: 'loading' }
   | {
     status: 'ready';
-    module: ModuleKey;
-    tableView: TableView;
+    page: PageKey;
+    detailTab: DetailTab;
     overviews: IndexOverview[];
     selected?: SiteSnapshot;
     siteSettings?: SiteSettings;
@@ -46,28 +54,28 @@ function boolLabel(language: LanguageCode, value: boolean): string {
   return value ? t(language, 'common.on') : t(language, 'common.off');
 }
 
-const TABLE_VIEWS: TableView[] = ['overview', 'sites', 'pages', 'progress', 'settings'];
+const DETAIL_TABS: DetailTab[] = ['overview', 'pages', 'progress'];
 
-function tableViewLabel(language: LanguageCode, view: TableView): string {
-  const labels: Record<TableView, MessageKey> = {
+function detailTabLabel(language: LanguageCode, view: DetailTab): string {
+  const labels: Record<DetailTab, MessageKey> = {
     overview: 'manager.overview',
-    sites: 'manager.sites',
     pages: 'manager.pages',
     progress: 'manager.progress',
-    settings: 'manager.settings',
   };
   return t(language, labels[view]);
 }
 
 function App() {
   const requestedSiteId = React.useMemo(() => new URLSearchParams(location.search).get('siteId') ?? undefined, []);
-  const initialModule = requestedSiteId ? 'tables' : 'settings';
+  const initialPage: PageKey = requestedSiteId ? 'siteDetail' : 'sites';
   const [state, setState] = React.useState<ManagerState>({ status: 'loading' });
+  const [includePortableProgress, setIncludePortableProgress] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async (
     siteId?: string,
-    module: ModuleKey = initialModule,
-    tableView: TableView = 'overview',
+    page: PageKey = initialPage,
+    detailTab: DetailTab = 'overview',
   ) => {
     // options 是扩展的管理后台页面。它不直接读数据库，而是通过 background 的 message API
     // 一次加载索引概览、设置，以及当前选中站点的完整快照。
@@ -77,34 +85,36 @@ function App() {
         browser.runtime.sendMessage({ type: 'GET_INDEX_OVERVIEWS' } satisfies RuntimeMessage) as Promise<IndexOverview[]>,
         browser.runtime.sendMessage({ type: 'GET_APP_SETTINGS' } satisfies RuntimeMessage) as Promise<AppSettings>,
       ]);
-      const selectedSiteId = siteId ?? requestedSiteId ?? overviews[0]?.site.siteId;
+      const selectedSiteId = page === 'siteDetail' ? siteId ?? requestedSiteId ?? overviews[0]?.site.siteId : undefined;
       const selected = selectedSiteId
         ? await browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId: selectedSiteId } satisfies RuntimeMessage) as SiteSnapshot | undefined
         : undefined;
       const siteSettings = selected
         ? await browser.runtime.sendMessage({ type: 'GET_SITE_SETTINGS', siteId: selected.site.siteId } satisfies RuntimeMessage) as SiteSettings
         : undefined;
-      setState({ status: 'ready', module, tableView, overviews, selected, siteSettings, settings });
+      setState({ status: 'ready', page, detailTab, overviews, selected, siteSettings, settings });
     } catch (error) {
       setState({
         status: 'error',
         message: error instanceof Error ? error.message : 'Could not load manager data.',
       });
     }
-  }, [initialModule, requestedSiteId]);
+  }, [initialPage, requestedSiteId]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
 
-  const selectModule = (module: ModuleKey) => {
+  const selectPage = (page: PageKey) => {
     if (state.status !== 'ready') return;
-    setState({ ...state, module });
+    if (page === 'siteDetail') return;
+    window.history.replaceState(null, '', location.pathname);
+    void load(undefined, page, 'overview');
   };
 
-  const selectTableView = (tableView: TableView) => {
+  const selectDetailTab = (detailTab: DetailTab) => {
     if (state.status !== 'ready') return;
-    setState({ ...state, tableView });
+    setState({ ...state, detailTab });
   };
 
   const saveSettings = async (settings: Partial<AppSettings>) => {
@@ -125,7 +135,8 @@ function App() {
 
   const selectSite = async (siteId: string) => {
     if (state.status !== 'ready') return;
-    await load(siteId, 'tables', state.tableView);
+    window.history.replaceState(null, '', `${location.pathname}?siteId=${encodeURIComponent(siteId)}`);
+    await load(siteId, 'siteDetail', 'overview');
   };
 
   const deleteSelected = async () => {
@@ -133,7 +144,8 @@ function App() {
     const { siteId, scopeTitle } = state.selected.site;
     if (!window.confirm(t(state.settings.language, 'manager.confirmDeleteIndex', { title: scopeTitle }))) return;
     await browser.runtime.sendMessage({ type: 'DELETE_SITE_INDEX', siteId } satisfies RuntimeMessage);
-    await load(undefined, 'tables', 'overview');
+    window.history.replaceState(null, '', location.pathname);
+    await load(undefined, 'sites', 'overview');
   };
 
   const clearSelectedProgress = async () => {
@@ -141,14 +153,65 @@ function App() {
     const { siteId, scopeTitle } = state.selected.site;
     if (!window.confirm(t(state.settings.language, 'manager.confirmClearSiteProgress', { title: scopeTitle }))) return;
     await browser.runtime.sendMessage({ type: 'CLEAR_SITE_PROGRESS', siteId } satisfies RuntimeMessage);
-    await load(siteId, 'tables', state.tableView);
+    await load(siteId, 'siteDetail', state.detailTab);
   };
 
   const clearAllProgress = async () => {
     if (state.status !== 'ready') return;
     if (!window.confirm(t(state.settings.language, 'manager.confirmClearAllProgress'))) return;
     await browser.runtime.sendMessage({ type: 'CLEAR_ALL_PROGRESS' } satisfies RuntimeMessage);
-    await load(state.selected?.site.siteId, 'tables', state.tableView);
+    await load(state.selected?.site.siteId, state.page, state.detailTab);
+  };
+
+  const downloadPortableData = async (scope: 'all' | 'site', siteId?: string) => {
+    if (state.status !== 'ready') return;
+    if (scope === 'site' && !siteId) return;
+    try {
+      const result = await browser.runtime.sendMessage({
+        type: 'EXPORT_PORTABLE_DATA',
+        scope,
+        siteId,
+        includeProgress: includePortableProgress,
+      } satisfies RuntimeMessage) as PortableExportResult;
+      const blob = new Blob([portableSerializedBlobPart(result)], { type: result.mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = result.fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : t(state.settings.language, 'manager.exportFailed'));
+    }
+  };
+
+  const importPortableFile = async (file: File) => {
+    if (state.status !== 'ready') return;
+    try {
+      const payload = await parsePortableData(await file.arrayBuffer());
+      const previewResult = await browser.runtime.sendMessage({
+        type: 'PREVIEW_PORTABLE_IMPORT',
+        payload,
+      } satisfies RuntimeMessage) as PortableImportPreviewResult;
+      const overwriteSiteIds = previewResult.preview.conflicts.length > 0
+        && window.confirm(t(state.settings.language, 'manager.confirmImportOverwrite', { count: previewResult.preview.conflicts.length }))
+        ? previewResult.preview.conflicts
+        : [];
+      const result = await browser.runtime.sendMessage({
+        type: 'IMPORT_PORTABLE_DATA',
+        payload: previewResult.payload,
+        overwriteSiteIds,
+      } satisfies RuntimeMessage) as PortableImportResultMessage;
+      window.alert(t(state.settings.language, 'manager.importComplete', {
+        imported: result.importedCount,
+        skipped: result.skipped.length,
+      }));
+      await load(state.selected?.site.siteId, state.page, state.detailTab);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : t(state.settings.language, 'manager.importFailed'));
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   if (state.status === 'loading') {
@@ -174,6 +237,14 @@ function App() {
   const progressByUrl = new Map(state.selected?.progress.map((item) => [item.url, item]) ?? []);
   const totalPages = state.overviews.reduce((sum, item) => sum + item.pageCount, 0);
   const totalProgressRows = state.selected?.progress.length ?? 0;
+  const selectedOverview = state.selected
+    ? state.overviews.find((overview) => overview.site.siteId === state.selected?.site.siteId)
+    : undefined;
+  const pageTitle = state.page === 'settings'
+    ? t(language, 'manager.settings')
+    : state.page === 'sites'
+      ? t(language, 'manager.sites')
+      : state.selected?.site.scopeTitle ?? t(language, 'manager.indexes');
 
   return (
     <main className="page app-shell">
@@ -182,43 +253,25 @@ function App() {
           <span>{t(language, 'common.brand')}</span>
           <strong>{t(language, 'manager.title')}</strong>
         </div>
-        <button className={state.module === 'settings' ? 'module active' : 'module'} type="button" onClick={() => selectModule('settings')}>
+        <button className={state.page === 'settings' ? 'module active' : 'module'} type="button" onClick={() => selectPage('settings')}>
           <span>{t(language, 'manager.settings')}</span>
           <small>{t(language, 'manager.pluginPreferences')}</small>
         </button>
-        <button className={state.module === 'tables' ? 'module active' : 'module'} type="button" onClick={() => selectModule('tables')}>
+        <button className={state.page !== 'settings' ? 'module active' : 'module'} type="button" onClick={() => selectPage('sites')}>
           <span>{t(language, 'manager.tables')}</span>
           <small>{t(language, 'manager.indexesAndRecords')}</small>
         </button>
-        {state.module === 'tables' && (
-          <div className="index-nav" aria-label={t(language, 'manager.indexes')}>
-            <span className="subnav-title">{t(language, 'manager.indexes')}</span>
-            {state.overviews.length === 0 ? (
-              <span className="subnav-empty">{t(language, 'manager.noIndexes')}</span>
-            ) : state.overviews.map((overview) => (
-              <button
-                className={overview.site.siteId === state.selected?.site.siteId ? 'index-nav-item active' : 'index-nav-item'}
-                key={overview.site.siteId}
-                type="button"
-                onClick={() => void selectSite(overview.site.siteId)}
-              >
-                <strong>{overview.site.scopeTitle}</strong>
-                <small>{t(language, 'manager.indexSummary', { count: overview.pageCount, percent: fmtPercent(overview.totalPercent) })}</small>
-              </button>
-            ))}
-          </div>
-        )}
       </aside>
 
       <section className="workspace">
         <header className="masthead">
           <div>
-            <p className="page-title">{state.module === 'settings' ? t(language, 'manager.settings') : t(language, 'manager.tableManagement')}</p>
+            <p className="page-title">{pageTitle}</p>
           </div>
-          <button className="ghost" type="button" onClick={() => void load(state.selected?.site.siteId, state.module, state.tableView)}>{t(language, 'common.refresh')}</button>
+          <button className="ghost" type="button" onClick={() => void load(state.selected?.site.siteId, state.page, state.detailTab)}>{t(language, 'common.refresh')}</button>
         </header>
 
-        {state.module === 'settings' ? (
+        {state.page === 'settings' ? (
           <section className="panel settings-panel">
             <label className="switch-row">
               <span>
@@ -259,28 +312,105 @@ function App() {
               </select>
             </label>
           </section>
+        ) : state.page === 'sites' ? (
+          <section className="tables-layout">
+            <section className="detail">
+              <section className="portable-section">
+                <div>
+                  <p className="section-kicker">{t(language, 'manager.backupAndImport')}</p>
+                  <h2>{t(language, 'manager.portableData')}</h2>
+                  <p className="muted">{t(language, 'manager.portableDataDescription')}</p>
+                </div>
+                <label className="portable-check">
+                  <input
+                    checked={includePortableProgress}
+                    type="checkbox"
+                    onChange={(event) => setIncludePortableProgress(event.currentTarget.checked)}
+                  />
+                  <span>{t(language, 'manager.includeReadingProgress')}</span>
+                </label>
+                <div className="portable-actions">
+                  <button className="ghost" type="button" onClick={() => void downloadPortableData('all')}>{t(language, 'manager.exportAll')}</button>
+                  <button className="ghost" type="button" onClick={() => fileInputRef.current?.click()}>{t(language, 'manager.importFile')}</button>
+                  <input
+                    ref={fileInputRef}
+                    accept=".json,.gz,.lfd.json,.lfd.json.gz,application/json,application/gzip"
+                    hidden
+                    type="file"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file) void importPortableFile(file);
+                    }}
+                  />
+                </div>
+              </section>
+              <section className="site-list-section">
+                <div className="detail-toolbar">
+                  <div>
+                    <h2>{t(language, 'manager.sites')}</h2>
+                    <p className="muted">{state.overviews.length === 0 ? t(language, 'manager.noIndexes') : t(language, 'manager.indexesAndRecords')}</p>
+                  </div>
+                </div>
+                <div className="site-list">
+                  {state.overviews.length === 0 ? (
+                    <div className="empty">{t(language, 'manager.noIndexes')}</div>
+                  ) : state.overviews.map((overview) => (
+                    <div className="site-list-row" key={overview.site.siteId}>
+                      <button className="site-list-main" type="button" onClick={() => void selectSite(overview.site.siteId)}>
+                        <span>
+                          <strong>{overview.site.scopeTitle}</strong>
+                          <small>{overview.site.host} · {t(language, 'common.updated', { date: fmtDate(overview.updatedAt) })}</small>
+                        </span>
+                        <span className="site-list-metrics">
+                          <small>{t(language, 'manager.pages')}: {overview.pageCount}</small>
+                          <small>{t(language, 'manager.progress')}: {fmtPercent(overview.totalPercent)}</small>
+                        </span>
+                      </button>
+                      <button className="ghost" type="button" onClick={() => void downloadPortableData('site', overview.site.siteId)}>
+                        {t(language, 'manager.exportSelectedSite')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </section>
+          </section>
         ) : (
           <section className="tables-layout">
             <section className="detail">
-              <div className="detail-toolbar">
+              <section className="detail-hero">
                 <div>
-                  <h2>{state.selected?.site.scopeTitle ?? t(language, 'manager.tables')}</h2>
+                  <p className="section-kicker">{t(language, 'manager.indexes')}</p>
+                  <h2>{state.selected?.site.scopeTitle ?? t(language, 'manager.indexes')}</h2>
                   <p className="muted">
                     {state.selected
                       ? `${state.selected.site.host} · ${t(language, 'common.updated', { date: fmtDate(state.selected.site.updatedAt) })}`
                       : t(language, 'manager.selectIndex')}
                   </p>
                 </div>
+                {state.selected && (
+                  <div className="hero-progress">
+                    <span>{t(language, 'popup.totalProgress')}</span>
+                    <strong>{fmtPercent(selectedOverview?.totalPercent ?? 0)}</strong>
+                    <div className="hero-meter" aria-hidden="true">
+                      <i style={{ width: `${Math.min(100, Math.max(0, selectedOverview?.totalPercent ?? 0))}%` }} />
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <div className="detail-nav">
+                <button className="ghost" type="button" onClick={() => selectPage('sites')}>{t(language, 'manager.sites')}</button>
                 <div className="tabs" aria-label={t(language, 'manager.tableViews')}>
-                  {TABLE_VIEWS.map((view) => (
-                    <button className={state.tableView === view ? 'tab active' : 'tab'} key={view} type="button" onClick={() => selectTableView(view)}>
-                      {tableViewLabel(language, view)}
-                    </button>
+                  {DETAIL_TABS.map((view) => (
+                  <button className={state.detailTab === view ? 'tab active' : 'tab'} key={view} type="button" onClick={() => selectDetailTab(view)}>
+                    {detailTabLabel(language, view)}
+                  </button>
                   ))}
                 </div>
               </div>
 
-              {state.tableView === 'overview' && (
+              {state.detailTab === 'overview' && (
                 <OverviewTable
                   clearAllProgress={() => void clearAllProgress()}
                   clearSelectedProgress={() => void clearSelectedProgress()}
@@ -292,29 +422,13 @@ function App() {
                   selected={state.selected}
                   siteSettings={state.siteSettings}
                   saveSiteSettings={(settings) => void saveSiteSettings(settings)}
+                  totalPercent={selectedOverview?.totalPercent ?? 0}
                   totalPages={totalPages}
                   totalProgressRows={totalProgressRows}
                 />
               )}
 
-              {state.tableView === 'sites' && (
-                <div className="table">
-                  <div className="row sites-header">
-                    <span>siteId</span>
-                    <span>{t(language, 'manager.scope')}</span>
-                    <span>{t(language, 'common.updatedLabel')}</span>
-                  </div>
-                  {state.overviews.map((overview) => (
-                    <button className="row table-button" key={overview.site.siteId} type="button" onClick={() => void selectSite(overview.site.siteId)}>
-                      <span>{overview.site.siteId}</span>
-                      <span>{overview.site.scopeTitle}</span>
-                      <span>{fmtDate(overview.site.updatedAt)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {state.tableView === 'pages' && (
+              {state.detailTab === 'pages' && (
                 <div className="table">
                   <div className="row pages-header">
                     <span>{t(language, 'manager.page')}</span>
@@ -334,7 +448,7 @@ function App() {
                 </div>
               )}
 
-              {state.tableView === 'progress' && (
+              {state.detailTab === 'progress' && (
                 <div className="table">
                   <div className="row progress-header">
                     <span>{t(language, 'manager.url')}</span>
@@ -353,30 +467,6 @@ function App() {
                 </div>
               )}
 
-              {state.tableView === 'settings' && (
-                <div className="table">
-                  <div className="row settings-header">
-                    <span>{t(language, 'manager.key')}</span>
-                    <span>{t(language, 'manager.value')}</span>
-                  </div>
-                  <div className="row settings-row">
-                    <span>showReadingMap</span>
-                    <span>{String(state.settings.showReadingMap)}</span>
-                  </div>
-                  <div className="row settings-row">
-                    <span>debugIndexingLogs</span>
-                    <span>{String(state.settings.debugIndexingLogs)}</span>
-                  </div>
-                  <div className="row settings-row">
-                    <span>language</span>
-                    <span>{state.settings.language}</span>
-                  </div>
-                  <div className="row settings-row">
-                    <span>readingProgressEnabled</span>
-                    <span>{String(state.siteSettings?.readingProgressEnabled ?? true)}</span>
-                  </div>
-                </div>
-              )}
             </section>
           </section>
         )}
@@ -391,6 +481,7 @@ type OverviewProps = {
   language: LanguageCode;
   totalPages: number;
   totalProgressRows: number;
+  totalPercent: number;
   fmtDate(value: number): string;
   fmtHeight(value: number): string;
   fmtPercent(value: number): string;
@@ -433,12 +524,12 @@ function OverviewTable(props: OverviewProps) {
       </section>
 
       <div className="stats">
-        <div><span>{t(props.language, 'manager.sites')}</span><strong>1</strong></div>
-        <div><span>{t(props.language, 'manager.pages')}</span><strong>{props.selected.pages.length} / {props.totalPages}</strong></div>
-        <div><span>{t(props.language, 'manager.progressRows')}</span><strong>{props.selected.progress.length} / {props.totalProgressRows}</strong></div>
-        <div><span>{t(props.language, 'manager.totalHeight')}</span><strong>{props.fmtHeight(totalHeight)}</strong></div>
-        <div><span>{t(props.language, 'manager.viewedHeight')}</span><strong>{props.fmtHeight(totalViewed)}</strong></div>
-        <div><span>{t(props.language, 'manager.siteId')}</span><strong className="compact">{props.selected.site.siteId}</strong></div>
+        <div className="stat-card primary-stat"><span>{t(props.language, 'popup.totalProgress')}</span><strong>{props.fmtPercent(props.totalPercent)}</strong></div>
+        <div className="stat-card"><span>{t(props.language, 'manager.pages')}</span><strong>{props.selected.pages.length} / {props.totalPages}</strong></div>
+        <div className="stat-card"><span>{t(props.language, 'manager.progressRows')}</span><strong>{props.selected.progress.length} / {props.totalProgressRows}</strong></div>
+        <div className="stat-card"><span>{t(props.language, 'manager.totalHeight')}</span><strong>{props.fmtHeight(totalHeight)}</strong></div>
+        <div className="stat-card"><span>{t(props.language, 'manager.viewedHeight')}</span><strong>{props.fmtHeight(totalViewed)}</strong></div>
+        <div className="stat-card id-stat"><span>{t(props.language, 'manager.siteId')}</span><strong className="compact">{props.selected.site.siteId}</strong></div>
       </div>
 
       <div className="danger-zone">

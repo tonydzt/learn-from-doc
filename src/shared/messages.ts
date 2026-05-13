@@ -1,6 +1,7 @@
 import type { PageIndexRecord, SiteRecord, ProgressRecord } from '../storage/db';
 import type { AppSettings } from '../settings/app-settings';
 import type { SiteSettings } from '../settings/site-settings';
+import type { PortableData, PortableImportPreview, PortableSerializedData } from '../storage/portable-data';
 
 // RuntimeMessage 是扩展内部的消息契约，类似后端项目里的 API DTO。
 // popup/options/content script 不能直接调用彼此的函数，只能通过这些 message type 通信。
@@ -65,6 +66,9 @@ export type RuntimeMessage =
   | { type: 'CLEAR_ALL_PROGRESS' }
   | { type: 'GET_APP_SETTINGS' }
   | { type: 'SAVE_APP_SETTINGS'; settings: Partial<AppSettings> }
+  | { type: 'EXPORT_PORTABLE_DATA'; scope: 'all' | 'site'; siteId?: string; includeProgress: boolean }
+  | { type: 'PREVIEW_PORTABLE_IMPORT'; payload: PortableData }
+  | { type: 'IMPORT_PORTABLE_DATA'; payload: PortableData; overwriteSiteIds: string[] }
   | { type: 'INDEX_PROGRESS_UPDATED'; siteId: string }
   | { type: 'SITE_SETTINGS_UPDATED'; siteId: string; settings: SiteSettings }
   | IndexRunProgressMessage
@@ -83,4 +87,18 @@ export type SiteSnapshot = {
   site: SiteRecord;
   pages: PageIndexRecord[];
   progress: ProgressRecord[];
+};
+
+export type PortableExportResult = PortableSerializedData & {
+  fileName: string;
+};
+
+export type PortableImportPreviewResult = {
+  payload: PortableData;
+  preview: PortableImportPreview;
+};
+
+export type PortableImportResultMessage = {
+  importedCount: number;
+  skipped: string[];
 };

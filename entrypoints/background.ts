@@ -3,7 +3,16 @@ import { createIndexRunProgressStore } from '../src/indexing/run-progress';
 import { indexFailureConsolePayload, measurementTimeoutLogDetails } from '../src/indexing/source-tab-log';
 import { totalProgressPercent } from '../src/progress/calculations';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
-import type { IndexOverview, IndexPageMeasuredMessage, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../src/shared/messages';
+import type {
+  IndexOverview,
+  IndexPageMeasuredMessage,
+  PortableExportResult,
+  PortableImportPreviewResult,
+  PortableImportResultMessage,
+  RuntimeMessage,
+  SiteSnapshot,
+  StartIndexResult,
+} from '../src/shared/messages';
 import { normalizePageUrl, siteIdFor, withIndexingHash } from '../src/shared/url';
 import {
   clearAllProgress,
@@ -16,11 +25,23 @@ import {
   getSiteSettings,
   getSite,
   replaceSitePages,
+  replacePortableSiteData,
   saveProgress,
   saveSiteSettings,
+  type SiteSettingsRecord,
   type PageIndexRecord,
   type SiteRecord,
 } from '../src/storage/db';
+import {
+  buildPortableData,
+  importPortableData,
+  parsePortableData,
+  portableFileName,
+  portableImportPreview,
+  serializePortableData,
+  type PortableDataScope,
+  type PortableSiteBundle,
+} from '../src/storage/portable-data';
 import { getAppSettings, saveAppSettings } from '../src/storage/settings';
 
 const INDEX_TIMEOUT_MS = 30000;
@@ -120,6 +141,77 @@ async function getSiteSnapshot(siteId: string): Promise<SiteSnapshot | undefined
     getProgressForSite(siteId),
   ]);
   return { site, pages, progress };
+}
+
+async function getPortableSiteBundle(site: SiteRecord, includeProgress: boolean): Promise<PortableSiteBundle> {
+  const [pages, progress, siteSettings] = await Promise.all([
+    getPages(site.siteId),
+    includeProgress ? getProgressForSite(site.siteId) : Promise.resolve([]),
+    getSiteSettings(site.siteId) as Promise<SiteSettingsRecord>,
+  ]);
+  return {
+    site,
+    pages,
+    siteSettings,
+    ...(includeProgress ? { progress } : {}),
+  };
+}
+
+async function exportPortableData(scope: PortableDataScope, siteId: string | undefined, includeProgress: boolean): Promise<PortableExportResult> {
+  const exportedAt = Date.now();
+  const sites = scope === 'all'
+    ? await getAllSites()
+    : siteId
+      ? [await getSite(siteId)].filter((site): site is SiteRecord => Boolean(site))
+      : [];
+  if (scope === 'site' && sites.length === 0) throw new Error('No site index selected for export.');
+
+  const payload = buildPortableData({
+    scope,
+    includeProgress,
+    exportedAt,
+    ...(scope === 'all' ? { appSettings: await getAppSettings() } : {}),
+    sites: await Promise.all(sites.map((site) => getPortableSiteBundle(site, includeProgress))),
+  });
+  const serialized = await serializePortableData(payload);
+  return {
+    ...serialized,
+    fileName: portableFileName({
+      scope,
+      exportedAt,
+      fileExtension: serialized.fileExtension,
+      site: scope === 'site' ? sites[0] : undefined,
+    }),
+  };
+}
+
+async function previewPortableImport(payload: Awaited<ReturnType<typeof parsePortableData>>): Promise<PortableImportPreviewResult> {
+  const existing = new Set((await getAllSites()).map((site) => site.siteId));
+  return {
+    payload,
+    preview: portableImportPreview(payload, existing),
+  };
+}
+
+async function applyPortableImport(payload: Awaited<ReturnType<typeof parsePortableData>>, overwriteSiteIds: string[]): Promise<PortableImportResultMessage> {
+  const existing = new Set((await getAllSites()).map((site) => site.siteId));
+  const result = importPortableData(payload, {
+    existingSiteIds: existing,
+    overwriteSiteIds: new Set(overwriteSiteIds),
+  });
+
+  for (const site of result.imported) {
+    await replacePortableSiteData(site);
+    await notifyIndexUpdated(site.site.siteId);
+  }
+  if (result.appSettings) {
+    await saveAppSettings(result.appSettings);
+  }
+
+  return {
+    importedCount: result.imported.length,
+    skipped: result.skipped,
+  };
 }
 
 // 等待某个测量 tab 回传 INDEX_PAGE_MEASURED；超时则清理等待状态并报错。
@@ -276,6 +368,14 @@ async function notifySiteSettingsUpdated(siteId: string, settings: Awaited<Retur
   }));
 }
 
+async function notifyIndexUpdated(siteId: string) {
+  const tabs = await browser.tabs.query({});
+  await Promise.all(tabs.map((tab) => {
+    if (tab.id == null) return undefined;
+    return browser.tabs.sendMessage(tab.id, { type: 'INDEX_PROGRESS_UPDATED', siteId } satisfies RuntimeMessage).catch(() => undefined);
+  }));
+}
+
 export default defineBackground(() => {
   // WXT 的 defineBackground 会把这里注册成 MV3 service worker 入口。
   // onMessage 相当于一个按 message.type 分发的轻量 RPC router。
@@ -344,6 +444,15 @@ export default defineBackground(() => {
 
     // options 管理页使用：保存扩展全局设置。
     if (message.type === 'SAVE_APP_SETTINGS') return saveAppSettings(message.settings);
+
+    // options 管理页使用：导出本地索引和配置为便携备份/分享文件。
+    if (message.type === 'EXPORT_PORTABLE_DATA') return exportPortableData(message.scope, message.siteId, message.includeProgress);
+
+    // options 管理页使用：导入前解析文件并报告本地冲突。
+    if (message.type === 'PREVIEW_PORTABLE_IMPORT') return previewPortableImport(message.payload);
+
+    // options 管理页使用：根据用户确认的覆盖列表导入便携数据。
+    if (message.type === 'IMPORT_PORTABLE_DATA') return applyPortableImport(message.payload, message.overwriteSiteIds);
 
     // options 管理页使用：清空当前选中站点的阅读进度，保留页面索引。
     if (message.type === 'CLEAR_SITE_PROGRESS') {

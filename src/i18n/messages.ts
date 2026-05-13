@@ -28,6 +28,17 @@ export type MessageKey =
   | 'manager.siteSettings'
   | 'manager.siteSettingsDescription'
   | 'manager.enableSiteReadingProgress'
+  | 'manager.backupAndImport'
+  | 'manager.portableData'
+  | 'manager.portableDataDescription'
+  | 'manager.includeReadingProgress'
+  | 'manager.exportAll'
+  | 'manager.exportSelectedSite'
+  | 'manager.importFile'
+  | 'manager.confirmImportOverwrite'
+  | 'manager.importComplete'
+  | 'manager.importFailed'
+  | 'manager.exportFailed'
   | 'manager.currentStatus'
   | 'manager.language'
   | 'manager.languageDescription'
@@ -109,9 +120,9 @@ export const EN_MESSAGES: Messages = {
   'manager.title': 'Manager',
   'manager.loading': 'Loading manager',
   'manager.settings': 'Settings',
-  'manager.tables': 'Tables',
+  'manager.tables': 'Sites',
   'manager.pluginPreferences': 'Plugin preferences',
-  'manager.indexesAndRecords': 'Indexes and records',
+  'manager.indexesAndRecords': 'Site indexes and backups',
   'manager.indexes': 'Indexes',
   'manager.noIndexes': 'No indexes yet.',
   'manager.indexSummary': '{count} pages · {percent}',
@@ -126,6 +137,17 @@ export const EN_MESSAGES: Messages = {
   'manager.siteSettings': 'Site settings',
   'manager.siteSettingsDescription': 'Controls for this indexed documentation site.',
   'manager.enableSiteReadingProgress': 'Enable reading progress',
+  'manager.backupAndImport': 'Backup and import',
+  'manager.portableData': 'Portable data',
+  'manager.portableDataDescription': 'Export local indexes for backup or sharing, or import a compatible Learn From Doc file.',
+  'manager.includeReadingProgress': 'Include reading progress',
+  'manager.exportAll': 'Export all',
+  'manager.exportSelectedSite': 'Export site',
+  'manager.importFile': 'Import file',
+  'manager.confirmImportOverwrite': 'The import contains {count} site conflict(s). Overwrite those local indexes?',
+  'manager.importComplete': 'Import complete. Imported {imported}; skipped {skipped}.',
+  'manager.importFailed': 'Import failed.',
+  'manager.exportFailed': 'Export failed.',
   'manager.currentStatus': 'Current status: {status}',
   'manager.language': 'Language',
   'manager.languageDescription': 'Choose the display language for extension pages and injected reading UI.',
@@ -191,9 +213,9 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.title': '管理器',
     'manager.loading': '正在加载管理器',
     'manager.settings': '设置',
-    'manager.tables': '表格',
+    'manager.tables': '站点',
     'manager.pluginPreferences': '插件偏好',
-    'manager.indexesAndRecords': '索引和记录',
+    'manager.indexesAndRecords': '站点索引和备份',
     'manager.indexes': '索引',
     'manager.noIndexes': '还没有索引。',
     'manager.indexSummary': '{count} 页 · {percent}',
@@ -208,6 +230,17 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.siteSettings': '站点设置',
     'manager.siteSettingsDescription': '当前已索引文档站点的配置。',
     'manager.enableSiteReadingProgress': '启用阅读进度',
+    'manager.backupAndImport': '备份和导入',
+    'manager.portableData': '便携数据',
+    'manager.portableDataDescription': '导出本地索引用于备份或分享，也可以导入兼容的 Learn From Doc 文件。',
+    'manager.includeReadingProgress': '包含阅读进度',
+    'manager.exportAll': '导出全部',
+    'manager.exportSelectedSite': '导出站点',
+    'manager.importFile': '导入文件',
+    'manager.confirmImportOverwrite': '导入文件里有 {count} 个站点和本地冲突。是否覆盖这些本地索引？',
+    'manager.importComplete': '导入完成。已导入 {imported} 个，已跳过 {skipped} 个。',
+    'manager.importFailed': '导入失败。',
+    'manager.exportFailed': '导出失败。',
     'manager.currentStatus': '当前状态：{status}',
     'manager.language': '语言',
     'manager.languageDescription': '选择扩展页面和注入阅读界面的显示语言。',
@@ -365,7 +398,7 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
 export const MESSAGES: Record<LanguageCode, Messages> = Object.fromEntries(
   SUPPORTED_LANGUAGES.map((language) => [
     language,
-    language === DEFAULT_LANGUAGE
+    language === 'en'
       ? EN_MESSAGES
       : { ...EN_MESSAGES, ...PARTIAL_TRANSLATIONS[language] },
   ]),
