@@ -1,8 +1,9 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
+import { LANGUAGE_NAMES, t, type MessageKey } from '../../src/i18n/messages';
 import { pageProgressPercent } from '../../src/progress/calculations';
-import type { AppSettings } from '../../src/settings/app-settings';
+import { SUPPORTED_LANGUAGES, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
 import type { IndexOverview, RuntimeMessage, SiteSnapshot } from '../../src/shared/messages';
 import './style.css';
 
@@ -39,21 +40,21 @@ function fmtHeight(value: number): string {
   return `${Math.round(value)} px`;
 }
 
-function boolLabel(value: boolean): string {
-  return value ? 'On' : 'Off';
+function boolLabel(language: LanguageCode, value: boolean): string {
+  return value ? t(language, 'common.on') : t(language, 'common.off');
 }
 
 const TABLE_VIEWS: TableView[] = ['overview', 'sites', 'pages', 'progress', 'settings'];
 
-function tableViewLabel(view: TableView): string {
-  const labels: Record<TableView, string> = {
-    overview: 'Overview',
-    sites: 'Sites',
-    pages: 'Pages',
-    progress: 'Progress',
-    settings: 'Settings',
+function tableViewLabel(language: LanguageCode, view: TableView): string {
+  const labels: Record<TableView, MessageKey> = {
+    overview: 'manager.overview',
+    sites: 'manager.sites',
+    pages: 'manager.pages',
+    progress: 'manager.progress',
+    settings: 'manager.settings',
   };
-  return labels[view];
+  return t(language, labels[view]);
 }
 
 function App() {
@@ -115,7 +116,7 @@ function App() {
   const deleteSelected = async () => {
     if (state.status !== 'ready' || !state.selected) return;
     const { siteId, scopeTitle } = state.selected.site;
-    if (!window.confirm(`Delete index for ${scopeTitle}?`)) return;
+    if (!window.confirm(t(state.settings.language, 'manager.confirmDeleteIndex', { title: scopeTitle }))) return;
     await browser.runtime.sendMessage({ type: 'DELETE_SITE_INDEX', siteId } satisfies RuntimeMessage);
     await load(undefined, 'tables', 'overview');
   };
@@ -123,14 +124,14 @@ function App() {
   const clearSelectedProgress = async () => {
     if (state.status !== 'ready' || !state.selected) return;
     const { siteId, scopeTitle } = state.selected.site;
-    if (!window.confirm(`Clear reading progress for ${scopeTitle}? The index will be kept.`)) return;
+    if (!window.confirm(t(state.settings.language, 'manager.confirmClearSiteProgress', { title: scopeTitle }))) return;
     await browser.runtime.sendMessage({ type: 'CLEAR_SITE_PROGRESS', siteId } satisfies RuntimeMessage);
     await load(siteId, 'tables', state.tableView);
   };
 
   const clearAllProgress = async () => {
     if (state.status !== 'ready') return;
-    if (!window.confirm('Clear all reading progress? Indexes will be kept.')) return;
+    if (!window.confirm(t(state.settings.language, 'manager.confirmClearAllProgress'))) return;
     await browser.runtime.sendMessage({ type: 'CLEAR_ALL_PROGRESS' } satisfies RuntimeMessage);
     await load(state.selected?.site.siteId, 'tables', state.tableView);
   };
@@ -138,8 +139,8 @@ function App() {
   if (state.status === 'loading') {
     return (
       <main className="page">
-        <p className="eyebrow">Learn From Doc</p>
-        <h1>Loading manager</h1>
+        <p className="eyebrow">{t('en', 'common.brand')}</p>
+        <h1>{t('en', 'manager.loading')}</h1>
       </main>
     );
   }
@@ -147,13 +148,14 @@ function App() {
   if (state.status === 'error') {
     return (
       <main className="page">
-        <p className="eyebrow">Learn From Doc</p>
-        <h1>Manager</h1>
+        <p className="eyebrow">{t('en', 'common.brand')}</p>
+        <h1>{t('en', 'manager.title')}</h1>
         <p className="error">{state.message}</p>
       </main>
     );
   }
 
+  const language = state.settings.language;
   const progressByUrl = new Map(state.selected?.progress.map((item) => [item.url, item]) ?? []);
   const totalPages = state.overviews.reduce((sum, item) => sum + item.pageCount, 0);
   const totalProgressRows = state.selected?.progress.length ?? 0;
@@ -162,22 +164,22 @@ function App() {
     <main className="page app-shell">
       <aside className="module-nav">
         <div className="brand">
-          <span>Learn From Doc</span>
-          <strong>Manager</strong>
+          <span>{t(language, 'common.brand')}</span>
+          <strong>{t(language, 'manager.title')}</strong>
         </div>
         <button className={state.module === 'settings' ? 'module active' : 'module'} type="button" onClick={() => selectModule('settings')}>
-          <span>Settings</span>
-          <small>Plugin preferences</small>
+          <span>{t(language, 'manager.settings')}</span>
+          <small>{t(language, 'manager.pluginPreferences')}</small>
         </button>
         <button className={state.module === 'tables' ? 'module active' : 'module'} type="button" onClick={() => selectModule('tables')}>
-          <span>Tables</span>
-          <small>Indexes and records</small>
+          <span>{t(language, 'manager.tables')}</span>
+          <small>{t(language, 'manager.indexesAndRecords')}</small>
         </button>
         {state.module === 'tables' && (
-          <div className="index-nav" aria-label="Indexes">
-            <span className="subnav-title">Indexes</span>
+          <div className="index-nav" aria-label={t(language, 'manager.indexes')}>
+            <span className="subnav-title">{t(language, 'manager.indexes')}</span>
             {state.overviews.length === 0 ? (
-              <span className="subnav-empty">No indexes yet.</span>
+              <span className="subnav-empty">{t(language, 'manager.noIndexes')}</span>
             ) : state.overviews.map((overview) => (
               <button
                 className={overview.site.siteId === state.selected?.site.siteId ? 'index-nav-item active' : 'index-nav-item'}
@@ -186,7 +188,7 @@ function App() {
                 onClick={() => void selectSite(overview.site.siteId)}
               >
                 <strong>{overview.site.scopeTitle}</strong>
-                <small>{overview.pageCount} pages · {fmtPercent(overview.totalPercent)}</small>
+                <small>{t(language, 'manager.indexSummary', { count: overview.pageCount, percent: fmtPercent(overview.totalPercent) })}</small>
               </button>
             ))}
           </div>
@@ -196,23 +198,17 @@ function App() {
       <section className="workspace">
         <header className="masthead">
           <div>
-            <p className="eyebrow">{state.module === 'settings' ? 'Settings' : 'Table management'}</p>
-            <h1>{state.module === 'settings' ? 'Plugin controls' : 'Data tables'}</h1>
+            <p className="page-title">{state.module === 'settings' ? t(language, 'manager.settings') : t(language, 'manager.tableManagement')}</p>
           </div>
-          <button className="ghost" type="button" onClick={() => void load(state.selected?.site.siteId, state.module, state.tableView)}>Refresh</button>
+          <button className="ghost" type="button" onClick={() => void load(state.selected?.site.siteId, state.module, state.tableView)}>{t(language, 'common.refresh')}</button>
         </header>
 
         {state.module === 'settings' ? (
           <section className="panel settings-panel">
-            <div>
-              <p className="section-kicker">Reading UI</p>
-              <h2>Right-side reading map</h2>
-              <p className="muted">Show the slim page map on supported indexed documentation pages.</p>
-            </div>
             <label className="switch-row">
               <span>
-                <strong>显示右侧阅读地图</strong>
-                <small>Current status: {boolLabel(state.settings.showReadingMap)}</small>
+                <strong>{t(language, 'manager.showReadingMap')}</strong>
+                <small>{t(language, 'manager.currentStatus', { status: boolLabel(language, state.settings.showReadingMap) })}</small>
               </span>
               <input
                 checked={state.settings.showReadingMap}
@@ -223,8 +219,8 @@ function App() {
             </label>
             <label className="switch-row">
               <span>
-                <strong>索引耗时调试日志</strong>
-                <small>Current status: {boolLabel(state.settings.debugIndexingLogs)}</small>
+                <strong>{t(language, 'manager.debugIndexingLogs')}</strong>
+                <small>{t(language, 'manager.currentStatus', { status: boolLabel(language, state.settings.debugIndexingLogs) })}</small>
               </span>
               <input
                 checked={state.settings.debugIndexingLogs}
@@ -233,23 +229,37 @@ function App() {
               />
               <i aria-hidden="true" />
             </label>
+            <label className="select-row">
+              <span>
+                <strong>{t(language, 'manager.language')}</strong>
+                <small>{t(language, 'manager.languageDescription')}</small>
+              </span>
+              <select
+                value={state.settings.language}
+                onChange={(event) => void saveSettings({ language: event.currentTarget.value as LanguageCode })}
+              >
+                {SUPPORTED_LANGUAGES.map((code) => (
+                  <option key={code} value={code}>{LANGUAGE_NAMES[code]}</option>
+                ))}
+              </select>
+            </label>
           </section>
         ) : (
           <section className="tables-layout">
             <section className="detail">
               <div className="detail-toolbar">
                 <div>
-                  <h2>{state.selected?.site.scopeTitle ?? 'Tables'}</h2>
+                  <h2>{state.selected?.site.scopeTitle ?? t(language, 'manager.tables')}</h2>
                   <p className="muted">
                     {state.selected
-                      ? `${state.selected.site.host} · Updated ${fmtDate(state.selected.site.updatedAt)}`
-                      : 'Select an index from the left menu.'}
+                      ? `${state.selected.site.host} · ${t(language, 'common.updated', { date: fmtDate(state.selected.site.updatedAt) })}`
+                      : t(language, 'manager.selectIndex')}
                   </p>
                 </div>
-                <div className="tabs" aria-label="Table views">
+                <div className="tabs" aria-label={t(language, 'manager.tableViews')}>
                   {TABLE_VIEWS.map((view) => (
                     <button className={state.tableView === view ? 'tab active' : 'tab'} key={view} type="button" onClick={() => selectTableView(view)}>
-                      {tableViewLabel(view)}
+                      {tableViewLabel(language, view)}
                     </button>
                   ))}
                 </div>
@@ -263,6 +273,7 @@ function App() {
                   fmtDate={fmtDate}
                   fmtHeight={fmtHeight}
                   fmtPercent={fmtPercent}
+                  language={language}
                   selected={state.selected}
                   totalPages={totalPages}
                   totalProgressRows={totalProgressRows}
@@ -273,8 +284,8 @@ function App() {
                 <div className="table">
                   <div className="row sites-header">
                     <span>siteId</span>
-                    <span>Scope</span>
-                    <span>Updated</span>
+                    <span>{t(language, 'manager.scope')}</span>
+                    <span>{t(language, 'common.updatedLabel')}</span>
                   </div>
                   {state.overviews.map((overview) => (
                     <button className="row table-button" key={overview.site.siteId} type="button" onClick={() => void selectSite(overview.site.siteId)}>
@@ -289,9 +300,9 @@ function App() {
               {state.tableView === 'pages' && (
                 <div className="table">
                   <div className="row pages-header">
-                    <span>Page</span>
-                    <span>Height</span>
-                    <span>Progress</span>
+                    <span>{t(language, 'manager.page')}</span>
+                    <span>{t(language, 'manager.height')}</span>
+                    <span>{t(language, 'manager.progress')}</span>
                   </div>
                   {state.selected?.pages.map((page) => {
                     const progress = progressByUrl.get(page.url);
@@ -302,17 +313,17 @@ function App() {
                         <span>{fmtPercent(pageProgressPercent(page, progress))}</span>
                       </a>
                     );
-                  }) ?? <div className="empty">Select an index to view pages.</div>}
+                  }) ?? <div className="empty">{t(language, 'manager.selectIndexPages')}</div>}
                 </div>
               )}
 
               {state.tableView === 'progress' && (
                 <div className="table">
                   <div className="row progress-header">
-                    <span>URL</span>
-                    <span>Viewed</span>
-                    <span>Ranges</span>
-                    <span>Updated</span>
+                    <span>{t(language, 'manager.url')}</span>
+                    <span>{t(language, 'manager.viewed')}</span>
+                    <span>{t(language, 'manager.ranges')}</span>
+                    <span>{t(language, 'common.updatedLabel')}</span>
                   </div>
                   {state.selected?.progress.map((progress) => (
                     <a className="row progress-row" href={progress.url} key={progress.url} rel="noreferrer" target="_blank">
@@ -321,15 +332,15 @@ function App() {
                       <span>{progress.viewedRanges.length}</span>
                       <span>{fmtDate(progress.updatedAt)}</span>
                     </a>
-                  )) ?? <div className="empty">Select an index to view progress.</div>}
+                  )) ?? <div className="empty">{t(language, 'manager.selectIndexProgress')}</div>}
                 </div>
               )}
 
               {state.tableView === 'settings' && (
                 <div className="table">
                   <div className="row settings-header">
-                    <span>Key</span>
-                    <span>Value</span>
+                    <span>{t(language, 'manager.key')}</span>
+                    <span>{t(language, 'manager.value')}</span>
                   </div>
                   <div className="row settings-row">
                     <span>showReadingMap</span>
@@ -338,6 +349,10 @@ function App() {
                   <div className="row settings-row">
                     <span>debugIndexingLogs</span>
                     <span>{String(state.settings.debugIndexingLogs)}</span>
+                  </div>
+                  <div className="row settings-row">
+                    <span>language</span>
+                    <span>{state.settings.language}</span>
                   </div>
                 </div>
               )}
@@ -351,6 +366,7 @@ function App() {
 
 type OverviewProps = {
   selected?: SiteSnapshot;
+  language: LanguageCode;
   totalPages: number;
   totalProgressRows: number;
   fmtDate(value: number): string;
@@ -363,7 +379,7 @@ type OverviewProps = {
 
 function OverviewTable(props: OverviewProps) {
   if (!props.selected) {
-    return <div className="empty">Select an index to view details.</div>;
+    return <div className="empty">{t(props.language, 'manager.selectIndexDetails')}</div>;
   }
 
   const totalHeight = props.selected.pages.reduce((sum, page) => sum + page.contentHeight, 0);
@@ -372,24 +388,24 @@ function OverviewTable(props: OverviewProps) {
   return (
     <>
       <div className="stats">
-        <div><span>Sites</span><strong>1</strong></div>
-        <div><span>Pages</span><strong>{props.selected.pages.length} / {props.totalPages}</strong></div>
-        <div><span>Progress rows</span><strong>{props.selected.progress.length} / {props.totalProgressRows}</strong></div>
-        <div><span>Total height</span><strong>{props.fmtHeight(totalHeight)}</strong></div>
-        <div><span>Viewed height</span><strong>{props.fmtHeight(totalViewed)}</strong></div>
-        <div><span>Site ID</span><strong className="compact">{props.selected.site.siteId}</strong></div>
+        <div><span>{t(props.language, 'manager.sites')}</span><strong>1</strong></div>
+        <div><span>{t(props.language, 'manager.pages')}</span><strong>{props.selected.pages.length} / {props.totalPages}</strong></div>
+        <div><span>{t(props.language, 'manager.progressRows')}</span><strong>{props.selected.progress.length} / {props.totalProgressRows}</strong></div>
+        <div><span>{t(props.language, 'manager.totalHeight')}</span><strong>{props.fmtHeight(totalHeight)}</strong></div>
+        <div><span>{t(props.language, 'manager.viewedHeight')}</span><strong>{props.fmtHeight(totalViewed)}</strong></div>
+        <div><span>{t(props.language, 'manager.siteId')}</span><strong className="compact">{props.selected.site.siteId}</strong></div>
       </div>
 
       <div className="danger-zone">
         <div>
-          <p className="section-kicker">Danger zone</p>
-          <h2>Safe destructive actions</h2>
-          <p className="muted">Progress cleanup keeps indexes. Deleting an index removes its site, pages, and progress rows.</p>
+          <p className="section-kicker">{t(props.language, 'manager.dangerZone')}</p>
+          <h2>{t(props.language, 'manager.safeDestructiveActions')}</h2>
+          <p className="muted">{t(props.language, 'manager.dangerDescription')}</p>
         </div>
         <div className="danger-actions">
-          <button className="danger" type="button" onClick={props.clearSelectedProgress}>Clear site progress</button>
-          <button className="danger" type="button" onClick={props.clearAllProgress}>Clear all progress</button>
-          <button className="danger strong" type="button" onClick={props.deleteSelected}>Delete index</button>
+          <button className="danger" type="button" onClick={props.clearSelectedProgress}>{t(props.language, 'manager.clearSiteProgress')}</button>
+          <button className="danger" type="button" onClick={props.clearAllProgress}>{t(props.language, 'manager.clearAllProgress')}</button>
+          <button className="danger strong" type="button" onClick={props.deleteSelected}>{t(props.language, 'manager.deleteIndex')}</button>
         </div>
       </div>
     </>

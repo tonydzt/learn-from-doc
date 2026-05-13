@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { getAdapterForUrl } from '../src/adapters';
+import { t } from '../src/i18n/messages';
 import { isSubdirectoryPage, pageProgressPercent, totalProgressPercent } from '../src/progress/calculations';
 import { completeRangeAtPageEnd } from '../src/progress/completion';
 import { readingMapSegments, viewportMapSegment } from '../src/progress/reading-map';
@@ -232,7 +233,7 @@ function formatPercent(value: number): string {
 }
 
 // 在 react.dev 左侧导航注入总进度卡片和每个页面链接后的进度 badge。
-async function renderProgressUi(siteId: string, snapshot?: ProgressUiSnapshot) {
+async function renderProgressUi(siteId: string, language: AppSettings['language'], snapshot?: ProgressUiSnapshot) {
   // 页面内 UI 是直接注入到 react.dev DOM 里的，不是 React 组件。
   // MutationObserver 触发重渲染时会重复调用这里，所以优先使用内存快照减少 message 往返。
   const adapter = getAdapterForUrl(location.href);
@@ -258,7 +259,7 @@ async function renderProgressUi(siteId: string, snapshot?: ProgressUiSnapshot) {
     totalCard.setAttribute(DATA_ATTR, 'total');
     totalCard.innerHTML = `
       <div class="lfd-total-row">
-        <span class="lfd-total-title">Doc progress</span>
+        <span class="lfd-total-title"></span>
         <span class="lfd-total-value">0%</span>
       </div>
       <div class="lfd-total-track"><div class="lfd-total-fill"></div></div>
@@ -268,6 +269,7 @@ async function renderProgressUi(siteId: string, snapshot?: ProgressUiSnapshot) {
   }
 
   const total = totalProgressPercent(pages, progress);
+  totalCard.querySelector<HTMLElement>('.lfd-total-title')!.textContent = t(language, 'content.docProgress');
   totalCard.querySelector<HTMLElement>('.lfd-total-value')!.textContent = formatPercent(total);
   totalCard.querySelector<HTMLElement>('.lfd-total-fill')!.style.width = `${total}%`;
 
@@ -289,7 +291,7 @@ async function renderProgressUi(siteId: string, snapshot?: ProgressUiSnapshot) {
     badge.setAttribute(DATA_ATTR, 'page-badge');
     if (isSubdirectoryPage(page)) {
       badge.classList.add('lfd-subdirectory-badge');
-      badge.textContent = '子目录';
+      badge.textContent = t(language, 'content.subdirectory');
     } else {
       badge.classList.remove('lfd-subdirectory-badge');
       badge.textContent = formatPercent(pageProgressPercent(page, progressByUrl.get(target.url)));
@@ -525,7 +527,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
   };
 
   // 页面内导航可能被 react.dev 重新渲染；renderUi 用快照重建注入节点。
-  const renderUi = () => renderProgressUi(siteId, uiSnapshot);
+  const renderUi = () => renderProgressUi(siteId, settings.language, uiSnapshot);
   const renderReadingMapIfEnabled = (range: ViewedRange | null) => {
     if (!settings.showReadingMap) {
       removeReadingMap();
@@ -597,7 +599,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     if (areaName !== 'local' || !changes[APP_SETTINGS_STORAGE_KEY]) return;
     // options 页面切换设置后，content script 可即时响应，不需要刷新页面。
     settings = normalizeAppSettings(changes[APP_SETTINGS_STORAGE_KEY].newValue);
-    renderReadingMapIfEnabled(visibleRange(article));
+    void renderPageChrome();
   };
   browser.storage.onChanged.addListener(onSettingsChanged);
 

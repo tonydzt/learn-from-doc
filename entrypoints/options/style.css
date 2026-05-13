@@ -187,6 +187,15 @@ button {
   margin: 0 0 8px;
 }
 
+.page-title {
+  margin: 0;
+  color: #111827;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
 h1,
 h2 {
   margin: 0;
@@ -237,6 +246,42 @@ h2 {
   border: 1px solid rgba(15, 23, 42, .08);
   border-radius: 8px;
   background: rgba(248, 250, 252, .82);
+}
+
+.select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, .82);
+}
+
+.select-row strong,
+.select-row small {
+  display: block;
+}
+
+.select-row strong {
+  color: #111827;
+}
+
+.select-row small {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.select-row select {
+  min-height: 38px;
+  width: 100%;
+  padding: 0 10px;
+  border: 1px solid rgba(15, 23, 42, .14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .9);
+  color: #111827;
+  font: inherit;
 }
 
 .switch-row strong,
@@ -515,6 +560,10 @@ h2 {
 
   .detail-toolbar {
     display: grid;
+  }
+
+  .select-row {
+    grid-template-columns: 1fr;
   }
 
   .tabs {
