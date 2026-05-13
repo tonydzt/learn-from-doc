@@ -12,6 +12,7 @@ import { lfdDebug, lfdTrace } from '../src/shared/logger';
 import type { IndexLinksResponse, RuntimeMessage } from '../src/shared/messages';
 import { isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
 import type { PageIndexRecord, ProgressRecord } from '../src/storage/db';
+import { shouldStartTrackingOnVisibilityChange } from '../src/content/reading-lifecycle';
 
 // 向 background 发送 runtime message。
 // content script 不直接访问数据库和扩展管理页，统一通过 background 做数据读写和调度。
@@ -677,6 +678,12 @@ export default defineContentScript({
     ctx.addEventListener(window, 'wxt:locationchange', () => {
       // react.dev 是 SPA，左侧导航跳转不会重新注入 content script，需要手动重启 tracker。
       void startTracking('locationchange');
+    });
+    ctx.addEventListener(document, 'visibilitychange', () => {
+      // 后台标签页首次注入时可能还没有可用正文，变为可见后补一次启动。
+      if (shouldStartTrackingOnVisibilityChange(document.visibilityState, Boolean(activeTracker))) {
+        void startTracking('visibilitychange');
+      }
     });
     ctx.onInvalidated(() => {
       // 扩展热更新、页面卸载等场景下清理当前 tracker。
