@@ -12,6 +12,17 @@ export type IndexLinksResponse = {
   links: Array<{ url: string; title: string }>;
 };
 
+export type PageAdapterContext = {
+  supported: boolean;
+  host?: string;
+  scopeKey?: string;
+  scopeTitle?: string;
+  adapterId?: string;
+  adapterKind?: 'site' | 'framework';
+  frameworkName?: string;
+  indexable?: boolean;
+};
+
 export type IndexPageMeasuredMessage = {
   type: 'INDEX_PAGE_MEASURED';
   payload: {
@@ -50,6 +61,9 @@ export type IndexOverview = {
 };
 
 export type RuntimeMessage =
+  | { type: 'GET_PAGE_ADAPTER_CONTEXT' }
+  | { type: 'HAS_ORIGIN_PERMISSION'; origin: string }
+  | { type: 'GET_INDEXED_SCOPE_FOR_URL'; url: string }
   | { type: 'COLLECT_INDEX_LINKS' }
   | { type: 'START_INDEX'; tabId: number }
   | { type: 'GET_INDEX_RUN_PROGRESS' }

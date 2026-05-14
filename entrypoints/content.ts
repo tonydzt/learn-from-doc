@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { getAdapterForUrl } from '../src/adapters';
+import { getAdapterForPage, getAdapterForUrl } from '../src/adapters';
 import { t } from '../src/i18n/messages';
 import { isSubdirectoryPage, pageProgressPercent, totalProgressPercent } from '../src/progress/calculations';
 import { completeRangeAtPageEnd } from '../src/progress/completion';
@@ -11,10 +11,18 @@ import type { SiteSettings } from '../src/settings/site-settings';
 import { DATA_ATTR, FLUSH_INTERVAL_MS } from '../src/shared/constants';
 import { waitForPageHydration } from '../src/shared/hydration';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
-import type { IndexLinksResponse, RuntimeMessage } from '../src/shared/messages';
+import type { IndexLinksResponse, PageAdapterContext, RuntimeMessage } from '../src/shared/messages';
 import { isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
-import type { PageIndexRecord, ProgressRecord } from '../src/storage/db';
-import { shouldStartReadingTracker, shouldStartTrackingOnVisibilityChange, shouldUsePrefetchedSiteSettings } from '../src/content/reading-lifecycle';
+import type { PageIndexRecord, ProgressRecord, SiteRecord } from '../src/storage/db';
+import {
+  claimReadingTrackerOwner,
+  isReadingTrackerOwner,
+  shouldContinueTracking,
+  shouldFlushTrackingProgress,
+  shouldStartReadingTracker,
+  shouldStartTrackingOnVisibilityChange,
+  shouldUsePrefetchedSiteSettings,
+} from '../src/content/reading-lifecycle';
 
 // 向 background 发送 runtime message。
 // content script 不直接访问数据库和扩展管理页，统一通过 background 做数据读写和调度。
@@ -50,6 +58,24 @@ function saveProgressToBackground(siteId: string, url: string, ranges: ViewedRan
 // 读取扩展全局设置，例如是否显示右侧阅读地图。
 function getAppSettingsFromBackground(): Promise<AppSettings> {
   return sendRuntimeMessage<AppSettings>({ type: 'GET_APP_SETTINGS' });
+}
+
+function originPatternForCurrentPage(): string {
+  return `${location.origin}/*`;
+}
+
+function hasOriginPermissionFromBackground(): Promise<boolean> {
+  return sendRuntimeMessage<boolean>({ type: 'HAS_ORIGIN_PERMISSION', origin: originPatternForCurrentPage() });
+}
+
+function getIndexedScopeForCurrentPage(): Promise<SiteRecord | null> {
+  return sendRuntimeMessage<SiteRecord | null>({ type: 'GET_INDEXED_SCOPE_FOR_URL', url: location.href });
+}
+
+async function canRunReadingFeatures(): Promise<boolean> {
+  if (getAdapterForUrl(location.href)) return true;
+  if (await hasOriginPermissionFromBackground()) return true;
+  return Boolean(await getIndexedScopeForCurrentPage());
 }
 
 type ReadingTrackerStop = () => Promise<void>;
@@ -242,7 +268,7 @@ function formatPercent(value: number): string {
 async function renderProgressUi(siteId: string, language: AppSettings['language'], snapshot?: ProgressUiSnapshot) {
   // 页面内 UI 是直接注入到 react.dev DOM 里的，不是 React 组件。
   // MutationObserver 触发重渲染时会重复调用这里，所以优先使用内存快照减少 message 往返。
-  const adapter = getAdapterForUrl(location.href);
+  const adapter = getAdapterForPage(location.href);
   const targets = adapter?.getProgressInsertionTargets();
   if (!targets) return;
 
@@ -363,7 +389,7 @@ function renderReadingMap(ranges: ViewedRange[], viewportRange: ViewedRange | nu
 
 async function collectIndexLinks(): Promise<IndexLinksResponse> {
   // 创建索引的第一步：让当前页面的 adapter 展开左侧导航，并收集属于当前文档范围的链接。
-  const adapter = getAdapterForUrl(location.href);
+  const adapter = getAdapterForPage(location.href);
   const scope = adapter?.getDocScope();
   if (!adapter || !scope) throw new Error('Current page is not supported.');
 
@@ -381,13 +407,30 @@ async function collectIndexLinks(): Promise<IndexLinksResponse> {
   };
 }
 
+function getPageAdapterContext(): PageAdapterContext {
+  const adapter = getAdapterForPage(location.href);
+  const scope = adapter?.getDocScope();
+  if (!adapter || !scope) return { supported: false };
+
+  return {
+    supported: true,
+    host: scope.host,
+    scopeKey: scope.scopeKey,
+    scopeTitle: scope.scopeTitle,
+    adapterId: adapter.id,
+    adapterKind: adapter.kind ?? 'site',
+    frameworkName: scope.frameworkName ?? adapter.frameworkName,
+    indexable: adapter.isPageIndexable?.() ?? true,
+  };
+}
+
 async function runIndexMeasurement() {
   // background 打开的测量 tab 会带索引 hash。这个模式只测正文高度并回传，
   // 不启动阅读 tracker，避免“机器打开页面”被误认为用户阅读。
   const startedAt = performance.now();
   await afterHydration(INDEXING_HYDRATION_TIMEOUT_MS, INDEXING_IDLE_TIMEOUT_MS);
   const afterHydrationMs = Math.round(performance.now() - startedAt);
-  const adapter = getAdapterForUrl(location.href);
+  const adapter = getAdapterForPage(location.href);
   const indexable = adapter?.isPageIndexable?.() ?? true;
   const article = adapter?.getArticleRoot();
   lfdDebug('indexing measurement page loaded', {
@@ -432,17 +475,30 @@ async function runIndexMeasurement() {
   }
 }
 
-async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerStop | undefined> {
+async function runReadingTracker(signal: AbortSignal, ownerId: string): Promise<ReadingTrackerStop | undefined> {
   // 普通阅读模式的生命周期：定位正文 -> 采样可见区间 -> 合并到内存 -> 定期 flush 到 background。
   // AbortSignal 用来在 SPA 路由切换或 content script 失效时停止旧 tracker。
-  const initialScope = getAdapterForUrl(location.href)?.getDocScope();
+  const trackedUrl = normalizePageUrl(location.href);
+  const canContinue = () => shouldContinueTracking({
+    isActiveOwner: isReadingTrackerOwner(document.documentElement, ownerId),
+    trackedUrl,
+    currentUrl: normalizePageUrl(location.href),
+  });
+  const canFlush = (isFinalFlush: boolean) => shouldFlushTrackingProgress({
+    isActiveOwner: isReadingTrackerOwner(document.documentElement, ownerId),
+    isFinalFlush,
+    isSignalAborted: signal.aborted,
+    trackedUrl,
+    currentUrl: normalizePageUrl(location.href),
+  });
+  const initialScope = getAdapterForPage(location.href)?.getDocScope();
   const prefetchedSiteId = initialScope ? siteIdFor(initialScope.host, initialScope.scopeKey) : undefined;
   const prefetchedSiteSettings = prefetchedSiteId ? getSiteSettingsFromBackground(prefetchedSiteId) : undefined;
 
   await afterHydration();
-  if (signal.aborted) return undefined;
+  if (signal.aborted || !canContinue()) return undefined;
 
-  const adapter = getAdapterForUrl(location.href);
+  const adapter = getAdapterForPage(location.href);
   const scope = adapter?.getDocScope();
   const article = adapter?.getArticleRoot();
   lfdDebug('reading tracker boot', {
@@ -460,7 +516,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     : getSiteSettingsFromBackground(siteId);
   const pagePromise = getPageFromBackground(siteId, normalizePageUrl(location.href));
   const [siteSettings, page] = await Promise.all([siteSettingsPromise, pagePromise]);
-  if (signal.aborted) return undefined;
+  if (signal.aborted || !canContinue()) return undefined;
 
   if (!shouldStartReadingTracker(siteSettings.readingProgressEnabled)) {
     removeProgressUi();
@@ -497,14 +553,14 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     getPagesFromBackground(siteId),
     getProgressForSiteFromBackground(siteId),
   ]);
-  if (signal.aborted) return undefined;
+  if (signal.aborted || !canContinue()) return undefined;
 
   let uiSnapshot: ProgressUiSnapshot = {
     pages: sitePages,
     progress: siteProgress,
   };
   let settings = await getAppSettingsFromBackground();
-  if (signal.aborted) return undefined;
+  if (signal.aborted || !canContinue()) return undefined;
 
   // tracker 启动时先恢复历史 ranges，后续滚动只在内存里合并，定期 flush。
   let ranges = mergeRanges(siteProgress.find((entry) => entry.url === page.url)?.viewedRanges ?? []);
@@ -518,7 +574,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
   });
 
   const sample = () => {
-    if (signal.aborted) return;
+    if (signal.aborted || !canContinue()) return;
 
     const visible = visibleRange(article);
     const range = visible
@@ -569,11 +625,12 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     renderReadingMap(ranges, range, page.contentHeight);
   };
   const renderPageChrome = async () => {
+    if (signal.aborted || !canContinue()) return;
     await renderUi();
     renderReadingMapIfEnabled(visibleRange(article));
   };
   const scheduleRenderUi = () => {
-    if (signal.aborted || renderTimer) return;
+    if (signal.aborted || !canContinue() || renderTimer) return;
     // 防抖 MutationObserver 的高频触发，避免页面重渲染时频繁刷新扩展 UI。
     renderTimer = globalThis.setTimeout(() => {
       renderTimer = undefined;
@@ -581,7 +638,8 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     }, 300);
   };
 
-  const flush = async (render = true) => {
+  const flush = async (render = true, isFinalFlush = false) => {
+    if (!canFlush(isFinalFlush)) return;
     // dirty=false 时不发消息；只有新增可见区间后才保存，类似后端里的“脏写回”策略。
     if (!dirty) {
       lfdTrace('reading flush skipped: no dirty ranges', { url: page.url });
@@ -604,13 +662,13 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
       ],
     };
     // 保存后同步更新内存快照，后续 UI 刷新不用再向 background 拉全量 progress。
-    if (render && !signal.aborted) await renderPageChrome();
+    if (render && !signal.aborted && canContinue()) await renderPageChrome();
   };
 
   // 启动时立即采样一次，确保打开页面时已经可见的正文会被记录。
   sample();
   await flush();
-  if (signal.aborted) return undefined;
+  if (signal.aborted || !canContinue()) return undefined;
 
   await renderPageChrome();
 
@@ -632,7 +690,7 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     if (areaName !== 'local' || !changes[APP_SETTINGS_STORAGE_KEY]) return;
     // options 页面切换设置后，content script 可即时响应，不需要刷新页面。
     settings = normalizeAppSettings(changes[APP_SETTINGS_STORAGE_KEY].newValue);
-    void renderPageChrome();
+    if (canContinue()) void renderPageChrome();
   };
   browser.storage.onChanged.addListener(onSettingsChanged);
 
@@ -646,7 +704,8 @@ async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerSto
     if (renderTimer) globalThis.clearTimeout(renderTimer);
     observer.disconnect();
     browser.storage.onChanged.removeListener(onSettingsChanged);
-    await flush(false);
+    if (!isReadingTrackerOwner(document.documentElement, ownerId)) return;
+    await flush(false, true);
     removeProgressUi();
   };
 }
@@ -660,13 +719,14 @@ export default defineContentScript({
   runAt: 'document_end',
   async main(ctx) {
     // content script 入口。WXT 会在匹配的页面注入它，但实际是否处理仍由 adapter 决定。
-    if (!getAdapterForUrl(location.href)) return;
 
+    const ownerId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    claimReadingTrackerOwner(document.documentElement, ownerId);
     let activeTracker: { controller: AbortController; stop: ReadingTrackerStop } | undefined;
     let routeVersion = 0;
 
     const currentSiteId = () => {
-      const scope = getAdapterForUrl(location.href)?.getDocScope();
+      const scope = getAdapterForPage(location.href)?.getDocScope();
       return scope ? siteIdFor(scope.host, scope.scopeKey) : undefined;
     };
 
@@ -685,16 +745,18 @@ export default defineContentScript({
       const version = ++routeVersion;
       await stopTracking();
 
-      if (isIndexingUrl(location.href) || !getAdapterForUrl(location.href)) return;
+      if (isIndexingUrl(location.href)) return;
+      if (!await canRunReadingFeatures()) return;
 
       lfdDebug('reading tracker route start requested', {
         reason,
         url: location.href,
         normalizedUrl: normalizePageUrl(location.href),
+        ownerId,
       });
 
       const controller = new AbortController();
-      const stop = await runReadingTracker(controller.signal);
+      const stop = await runReadingTracker(controller.signal, ownerId);
       if (!stop) return;
 
       if (version !== routeVersion || controller.signal.aborted) {
@@ -708,6 +770,7 @@ export default defineContentScript({
     };
 
     browser.runtime.onMessage.addListener((message: RuntimeMessage) => {
+      if (message.type === 'GET_PAGE_ADAPTER_CONTEXT') return getPageAdapterContext();
       // background.startIndex 使用：创建索引前收集当前页面左侧导航链接。
       if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
       // background 保存索引后通知原页面刷新 tracker。
@@ -740,6 +803,8 @@ export default defineContentScript({
       return;
     }
 
-    await startTracking('initial-load');
+    if (await canRunReadingFeatures()) {
+      await startTracking('initial-load');
+    }
   },
 });

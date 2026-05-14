@@ -1,12 +1,16 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
-import { getScopeForUrl } from '../../src/adapters';
 import { t } from '../../src/i18n/messages';
 import { totalProgressPercent } from '../../src/progress/calculations';
+import { detectionResultState, initialDetectionState } from '../../src/popup/detection';
+import { probePageAdapterContext } from '../../src/popup/framework-probe';
+import { shouldRequestPersistentOriginPermission } from '../../src/popup/permissions';
 import { DEFAULT_LANGUAGE, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
-import type { RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
+import type { PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
+import { originPermissionPatternForUrl } from '../../src/shared/origin-permissions';
 import { siteIdFor } from '../../src/shared/url';
+import type { SiteRecord } from '../../src/storage/db';
 import './style.css';
 
 type PopupContext = {
@@ -15,10 +19,13 @@ type PopupContext = {
   host?: string;
   scopeKey?: string;
   scopeTitle?: string;
+  adapterKind?: PageAdapterContext['adapterKind'];
+  frameworkName?: string;
+  canDetect?: boolean;
+  detectionFailed?: boolean;
   totalPercent?: number;
   pageCount?: number;
 };
-type SupportedScope = Required<Pick<PopupContext, 'host' | 'scopeKey' | 'scopeTitle'>>;
 
 type LoadState =
   | { status: 'loading' }
@@ -31,13 +38,62 @@ function fmt(value: number | undefined): string {
   return `${Math.round(value ?? 0)}%`;
 }
 
-function scopeFromTabUrl(url: string | undefined): SupportedScope | null {
-  if (!url) return null;
+async function injectContentScript(tabId: number): Promise<void> {
+  const file = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
+  if (!file) throw new Error('Content script file not found.');
+  await browser.scripting.executeScript({
+    target: { tabId },
+    files: [file],
+  });
+}
+
+async function contextFromExistingContentScript(tabId: number): Promise<PageAdapterContext | null> {
   try {
-    return getScopeForUrl(url);
+    const context = await browser.tabs.sendMessage(tabId, { type: 'GET_PAGE_ADAPTER_CONTEXT' } satisfies RuntimeMessage) as PageAdapterContext;
+    if (context.supported) return context;
   } catch {
     return null;
   }
+  return null;
+}
+
+async function probeContextFromTab(tabId: number): Promise<PageAdapterContext> {
+  const [result] = await browser.scripting.executeScript({
+    target: { tabId },
+    func: probePageAdapterContext,
+  });
+  return result?.result ?? { supported: false };
+}
+
+async function injectContentScriptForDetectedPage(tabId: number, fallback: PageAdapterContext): Promise<PageAdapterContext> {
+  await injectContentScript(tabId);
+  try {
+    const context = await browser.tabs.sendMessage(tabId, { type: 'GET_PAGE_ADAPTER_CONTEXT' } satisfies RuntimeMessage) as PageAdapterContext;
+    return context.supported ? context : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function contextFromIndexedSite(site: SiteRecord): Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext {
+  return {
+    supported: true,
+    host: site.host,
+    scopeKey: site.scopeKey,
+    scopeTitle: site.scopeTitle,
+    adapterKind: 'framework',
+    indexable: true,
+  };
+}
+
+async function ensurePersistentOriginPermission(url: string | undefined, adapterKind: PageAdapterContext['adapterKind']): Promise<void> {
+  if (!shouldRequestPersistentOriginPermission({ url, adapterKind })) return;
+  const originPattern = originPermissionPatternForUrl(url);
+  if (!originPattern) return;
+  const alreadyGranted = await browser.permissions.contains({ origins: [originPattern] });
+  if (alreadyGranted) return;
+  const granted = await browser.permissions.request({ origins: [originPattern] });
+  if (!granted) throw new Error('Origin permission is required to index and auto-enable this documentation site.');
 }
 
 function ProgressRing({ value }: { value: number }) {
@@ -58,12 +114,42 @@ function messageForPhase(language: LanguageCode, phase: IndexRunProgress['phase'
 function App() {
   const [state, setState] = React.useState<LoadState>({ status: 'loading' });
   const [indexing, setIndexing] = React.useState(false);
+  const [detecting, setDetecting] = React.useState(false);
   const [indexProgress, setIndexProgress] = React.useState<IndexRunProgress | null>(null);
 
   const restoreIndexProgress = React.useCallback((progress: IndexRunProgress | null) => {
     setIndexProgress(progress);
     setIndexing(Boolean(progress && progress.phase !== 'done'));
   }, []);
+
+  const loadSupportedContext = React.useCallback(async (
+    pageContext: Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext,
+    indexRunProgressPromise: Promise<IndexRunProgress | null>,
+    settingsPromise: Promise<AppSettings>,
+  ) => {
+    const siteId = siteIdFor(pageContext.host, pageContext.scopeKey);
+    const [snapshot, indexRunProgress, settings] = await Promise.all([
+      browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as Promise<SiteSnapshot | undefined>,
+      indexRunProgressPromise,
+      settingsPromise,
+    ]);
+    restoreIndexProgress(indexRunProgress);
+    setState({
+      status: 'ready',
+      settings,
+      context: {
+        supported: true,
+        indexed: Boolean(snapshot),
+        host: pageContext.host,
+        scopeKey: pageContext.scopeKey,
+        scopeTitle: pageContext.scopeTitle,
+        adapterKind: pageContext.adapterKind,
+        frameworkName: pageContext.frameworkName,
+        totalPercent: snapshot ? totalProgressPercent(snapshot.pages, snapshot.progress) : 0,
+        pageCount: snapshot?.pages.length ?? 0,
+      },
+    });
+  }, [restoreIndexProgress]);
 
   const load = React.useCallback(async () => {
     // popup 每次打开都是一个短生命周期 React 页面。
@@ -74,39 +160,46 @@ function App() {
       const settingsPromise = browser.runtime.sendMessage({ type: 'GET_APP_SETTINGS' } satisfies RuntimeMessage) as Promise<AppSettings>;
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (tab.id == null) throw new Error('No active tab found.');
-      const scope = scopeFromTabUrl(tab.url);
-      if (!scope) {
+      const initial = initialDetectionState(tab.url);
+      if (initial.status === 'supported') {
+        await loadSupportedContext(initial.context as Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext, indexRunProgressPromise, settingsPromise);
+        return;
+      }
+
+      const existingContext = initial.status === 'needs-manual-detect'
+        ? await contextFromExistingContentScript(tab.id)
+        : null;
+      const existingState = existingContext ? detectionResultState(existingContext) : null;
+      if (existingState?.status === 'supported' && existingState.context.host && existingState.context.scopeKey && existingState.context.scopeTitle) {
+        await loadSupportedContext(existingState.context as Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext, indexRunProgressPromise, settingsPromise);
+        return;
+      }
+
+      if (initial.status === 'needs-manual-detect' && tab.url) {
+        const indexedSite = await browser.runtime.sendMessage({ type: 'GET_INDEXED_SCOPE_FOR_URL', url: tab.url } satisfies RuntimeMessage) as SiteRecord | null;
+        if (indexedSite) {
+          await loadSupportedContext(contextFromIndexedSite(indexedSite), indexRunProgressPromise, settingsPromise);
+          return;
+        }
+      }
+
+      if (initial.status !== 'needs-manual-detect') {
         const [indexRunProgress, settings] = await Promise.all([indexRunProgressPromise, settingsPromise]);
         restoreIndexProgress(indexRunProgress);
         setState({ status: 'ready', context: { supported: false, indexed: false }, settings });
         return;
       }
 
-      const siteId = siteIdFor(scope.host, scope.scopeKey);
-      const [snapshot, indexRunProgress, settings] = await Promise.all([
-        browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as Promise<SiteSnapshot | undefined>,
-        indexRunProgressPromise,
-        settingsPromise,
-      ]);
+      const [indexRunProgress, settings] = await Promise.all([indexRunProgressPromise, settingsPromise]);
       restoreIndexProgress(indexRunProgress);
-      setState({
-        status: 'ready',
-        settings,
-        context: {
-          supported: true,
-          indexed: Boolean(snapshot),
-          ...scope,
-          totalPercent: snapshot ? totalProgressPercent(snapshot.pages, snapshot.progress) : 0,
-          pageCount: snapshot?.pages.length ?? 0,
-        },
-      });
+      setState({ status: 'ready', context: { supported: false, indexed: false, canDetect: true }, settings });
     } catch (error) {
       setState({
         status: 'error',
         message: error instanceof Error ? error.message : 'Could not read the current page.',
       });
     }
-  }, [restoreIndexProgress]);
+  }, [loadSupportedContext, restoreIndexProgress]);
 
   React.useEffect(() => {
     void load();
@@ -134,6 +227,8 @@ function App() {
     try {
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (tab.id == null) throw new Error('No active tab found.');
+      const context = state.status === 'ready' ? state.context : undefined;
+      await ensurePersistentOriginPermission(tab.url, context?.supported ? context.adapterKind : undefined);
       const result = await browser.runtime.sendMessage({ type: 'START_INDEX', tabId: tab.id } satisfies RuntimeMessage) as StartIndexResult;
       if (!result.ok) throw new Error(result.error);
       await load();
@@ -144,6 +239,47 @@ function App() {
       });
     } finally {
       setIndexing(false);
+    }
+  };
+
+  const detectFramework = async () => {
+    setDetecting(true);
+    try {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tab.id == null) throw new Error('No active tab found.');
+      const probedContext = await probeContextFromTab(tab.id);
+      const detected = detectionResultState(probedContext);
+      if (detected.status !== 'supported' || !detected.context.host || !detected.context.scopeKey || !detected.context.scopeTitle) {
+        if (state.status === 'ready') {
+          setState({
+            status: 'ready',
+            settings: state.settings,
+            context: { supported: false, indexed: false, detectionFailed: true },
+          });
+        }
+        return;
+      }
+      const pageContext = await injectContentScriptForDetectedPage(tab.id, detected.context);
+      await loadSupportedContext(
+        pageContext as Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext,
+        browser.runtime.sendMessage({ type: 'GET_INDEX_RUN_PROGRESS' } satisfies RuntimeMessage) as Promise<IndexRunProgress | null>,
+        browser.runtime.sendMessage({ type: 'GET_APP_SETTINGS' } satisfies RuntimeMessage) as Promise<AppSettings>,
+      );
+    } catch (error) {
+      if (state.status === 'ready') {
+        setState({
+          status: 'ready',
+          settings: state.settings,
+          context: { supported: false, indexed: false, detectionFailed: true },
+        });
+      } else {
+        setState({
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Detection failed.',
+        });
+      }
+    } finally {
+      setDetecting(false);
     }
   };
 
@@ -187,6 +323,7 @@ function App() {
         <div>
           <p className="eyebrow">{t(language, 'common.brand')}</p>
           <h1>{context.supported ? context.scopeTitle : t(language, 'popup.unsupportedPage')}</h1>
+          {context.frameworkName ? <p className="framework-label">Detected: {context.frameworkName}</p> : null}
         </div>
         <div className="header-actions">
           {context.indexed ? <span className="status">{t(language, 'popup.indexed')}</span> : <span className="status muted-status">{t(language, 'popup.new')}</span>}
@@ -201,7 +338,12 @@ function App() {
 
       {!context.supported ? (
         <section className="empty">
-          <p>{t(language, 'popup.unsupportedDescription')}</p>
+          <p>{context.detectionFailed ? t(language, 'popup.noFrameworkDetected') : t(language, 'popup.unsupportedDescription')}</p>
+          {context.canDetect ? (
+            <button className="secondary" type="button" onClick={() => void detectFramework()} disabled={detecting}>
+              {detecting ? t(language, 'popup.detectingFramework') : t(language, 'popup.detectFramework')}
+            </button>
+          ) : null}
         </section>
       ) : (
         <>
