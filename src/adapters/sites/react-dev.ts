@@ -1,5 +1,5 @@
-import { normalizePageUrl } from '../shared/url';
-import type { DocScope, DocSiteAdapter, ProgressInsertionTargets, SidebarLink } from './types';
+import { normalizePageUrl } from '../../shared/url';
+import type { DocScope, DocSiteAdapter, ProgressInsertionTargets, SidebarLink } from '../types';
 
 const SIDEBAR_SELECTORS = [
   'aside nav',

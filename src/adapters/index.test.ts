@@ -1,4 +1,4 @@
-import { getAdapterForUrl, getScopeForUrl } from '.';
+import { getAdapterForPage, getAdapterForUrl, getScopeForPage, getScopeForUrl } from '.';
 
 describe('adapter index', () => {
   it('returns the adapter for each supported docs site', () => {
@@ -6,6 +6,43 @@ describe('adapter index', () => {
     expect(getAdapterForUrl('https://playwright.dev/docs/intro')?.id).toBe('playwright-dev');
     expect(getAdapterForUrl('https://developers.openai.com/codex')?.id).toBe('openai-codex');
     expect(getAdapterForUrl('https://developers.openai.com/api/docs')?.id).toBe('openai-codex');
+  });
+
+  it('prefers site adapters before framework adapters on matching urls', () => {
+    document.body.innerHTML = `
+      <nav aria-label="Docs sidebar">
+        <a class="menu__link" href="https://playwright.dev/docs/intro">Intro</a>
+      </nav>
+      <main><article>Body</article></main>
+      <script id="__docusaurus"></script>
+    `;
+
+    expect(getAdapterForPage('https://playwright.dev/docs/intro')?.id).toBe('playwright-dev');
+  });
+
+  it('falls back to a framework adapter when no site adapter matches', () => {
+    document.body.innerHTML = `
+      <nav aria-label="Docs sidebar">
+        <a class="menu__link" href="https://example.com/docs/intro">Intro</a>
+      </nav>
+      <main><article>Body</article></main>
+      <script id="__docusaurus"></script>
+    `;
+
+    expect(getAdapterForUrl('https://example.com/docs/intro')).toBeNull();
+    expect(getAdapterForPage('https://example.com/docs/intro')?.id).toBe('framework-docusaurus');
+    expect(getScopeForPage('https://example.com/docs/intro')).toEqual({
+      host: 'example.com',
+      scopeKey: 'docs',
+      scopeTitle: 'Docusaurus Docs',
+      frameworkName: 'Docusaurus',
+    });
+  });
+
+  it('does not match weak framework-like pages without a sidebar and article', () => {
+    document.body.innerHTML = '<main><p>Marketing page</p></main>';
+
+    expect(getAdapterForPage('https://example.com/')).toBeNull();
   });
 
   it('returns popup-compatible scopes for supported urls', () => {

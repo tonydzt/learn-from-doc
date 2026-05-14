@@ -79,6 +79,9 @@ export type MessageKey =
   | 'popup.new'
   | 'popup.openManager'
   | 'popup.unsupportedDescription'
+  | 'popup.detectFramework'
+  | 'popup.detectingFramework'
+  | 'popup.noFrameworkDetected'
   | 'popup.totalProgress'
   | 'popup.pagesIndexed'
   | 'popup.createIndexFirst'
@@ -188,6 +191,9 @@ export const EN_MESSAGES: Messages = {
   'popup.new': 'New',
   'popup.openManager': 'Open manager',
   'popup.unsupportedDescription': 'This extension currently supports React Docs, Playwright Docs, and OpenAI Codex Docs.',
+  'popup.detectFramework': 'Detect docs framework',
+  'popup.detectingFramework': 'Detecting framework...',
+  'popup.noFrameworkDetected': 'No supported docs framework was detected on this page.',
   'popup.totalProgress': 'Total progress',
   'popup.pagesIndexed': '{count} pages indexed locally',
   'popup.createIndexFirst': 'Create a local index before tracking progress.',
@@ -280,6 +286,9 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'popup.new': '新建',
     'popup.openManager': '打开管理器',
     'popup.unsupportedDescription': '此扩展目前支持 React Docs、Playwright Docs 和 OpenAI Codex Docs。',
+    'popup.detectFramework': '检测文档框架',
+    'popup.detectingFramework': '正在检测框架...',
+    'popup.noFrameworkDetected': '未在当前页面检测到支持的文档框架。',
     'popup.totalProgress': '总进度',
     'popup.pagesIndexed': '本地已索引 {count} 页',
     'popup.createIndexFirst': '跟踪进度前请先创建本地索引。',

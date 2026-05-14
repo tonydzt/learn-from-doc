@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { createIndexRunProgressStore } from '../src/indexing/run-progress';
+import { indexedScopeForUrl } from '../src/indexing/indexed-scope';
 import { indexFailureConsolePayload, measurementTimeoutLogDetails } from '../src/indexing/source-tab-log';
 import { totalProgressPercent } from '../src/progress/calculations';
 import { lfdDebug, lfdTrace } from '../src/shared/logger';
@@ -13,6 +14,7 @@ import type {
   SiteSnapshot,
   StartIndexResult,
 } from '../src/shared/messages';
+import { indexedAutoInjectTargetForUrl } from '../src/shared/origin-permissions';
 import { normalizePageUrl, siteIdFor, withIndexingHash } from '../src/shared/url';
 import {
   clearAllProgress,
@@ -78,6 +80,38 @@ async function isDebugIndexingLogsEnabled(): Promise<boolean> {
 // 向指定 tab 的 content script 发送消息，并把返回值转换成调用方期望的类型。
 function sendTabMessage<T>(tabId: number, message: RuntimeMessage): Promise<T> {
   return browser.tabs.sendMessage(tabId, message) as Promise<T>;
+}
+
+async function injectContentScript(tabId: number): Promise<void> {
+  const file = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
+  if (!file) throw new Error('Content script file not found.');
+  await browser.scripting.executeScript({
+    target: { tabId },
+    files: [file],
+  });
+}
+
+async function hasContentScript(tabId: number): Promise<boolean> {
+  try {
+    const context = await sendTabMessage<{ supported: boolean }>(tabId, { type: 'GET_PAGE_ADAPTER_CONTEXT' });
+    return Boolean(context?.supported);
+  } catch {
+    return false;
+  }
+}
+
+async function injectContentScriptIfMissing(tabId: number): Promise<void> {
+  if (await hasContentScript(tabId)) return;
+  await injectContentScript(tabId);
+}
+
+async function maybeInjectIndexedTab(tabId: number | undefined, url: string | undefined): Promise<void> {
+  if (tabId == null || !url) return;
+  const target = indexedAutoInjectTargetForUrl(url, await getAllSites());
+  if (!target) return;
+  const hasPermission = await browser.permissions.contains({ origins: [target.originPattern] });
+  if (!hasPermission) return;
+  await injectContentScriptIfMissing(tabId);
 }
 
 // 向 popup/options 等扩展页面广播索引进度；没有接收方时忽略错误。
@@ -236,6 +270,14 @@ function waitForMeasurement(tabId: number, url: string, startedAt: number): Prom
   });
 }
 
+function rejectPendingMeasurement(tabId: number, error: unknown): void {
+  const pending = pendingMeasurements.get(tabId);
+  if (!pending) return;
+  pendingMeasurements.delete(tabId);
+  globalThis.clearTimeout(pending.timeout);
+  pending.reject(error instanceof Error ? error : new Error(String(error)));
+}
+
 // 打开一个带索引 hash 的临时 tab，让 content script 测量页面正文高度。
 async function measurePage(url: string): Promise<{ tabId: number; payload: IndexPageMeasuredMessage['payload'] }> {
   const startedAt = Date.now();
@@ -246,9 +288,17 @@ async function measurePage(url: string): Promise<{ tabId: number; payload: Index
   });
   if (tab.id == null) throw new Error('Could not create indexing tab.');
   const tabCreatedAt = Date.now();
+  const measurementPromise = waitForMeasurement(tab.id, url, startedAt);
 
   try {
-    const payload = await waitForMeasurement(tab.id, url, startedAt);
+    try {
+      await injectContentScript(tab.id);
+    } catch (error) {
+      rejectPendingMeasurement(tab.id, error);
+      await measurementPromise.catch(() => undefined);
+      throw error;
+    }
+    const payload = await measurementPromise;
     const measuredAt = Date.now();
     if (await isDebugIndexingLogsEnabled()) {
       if (payload.skippedReason) {
@@ -378,6 +428,28 @@ async function notifyIndexUpdated(siteId: string) {
 
 export default defineBackground(() => {
   // WXT 的 defineBackground 会把这里注册成 MV3 service worker 入口。
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status !== 'complete') return;
+    void maybeInjectIndexedTab(tabId, tab.url).catch((error) => {
+      lfdDebug('failed to auto-inject indexed tab after update', {
+        tabId,
+        url: tab.url,
+        error: errorDetails(error),
+      });
+    });
+  });
+
+  browser.tabs.onActivated.addListener((activeInfo) => {
+    void browser.tabs.get(activeInfo.tabId).then((tab) => {
+      return maybeInjectIndexedTab(tab.id, tab.url);
+    }).catch((error) => {
+      lfdDebug('failed to auto-inject indexed tab after activation', {
+        tabId: activeInfo.tabId,
+        error: errorDetails(error),
+      });
+    });
+  });
+
   // onMessage 相当于一个按 message.type 分发的轻量 RPC router。
   browser.runtime.onMessage.addListener((message: RuntimeMessage, sender) => {
     lfdTrace('runtime message received in background', {
@@ -409,6 +481,16 @@ export default defineBackground(() => {
 
     // popup 使用：新打开时快速恢复当前索引运行进度，不等待下一次广播。
     if (message.type === 'GET_INDEX_RUN_PROGRESS') return indexRunProgress.get();
+
+    // content script 使用：permissions API 只在扩展上下文里可靠可用。
+    if (message.type === 'HAS_ORIGIN_PERMISSION') {
+      return browser.permissions.contains({ origins: [message.origin] });
+    }
+
+    // popup/content script 使用：无持久 host permission 时，已索引 scope 允许 activeTab 临时注入后正常工作。
+    if (message.type === 'GET_INDEXED_SCOPE_FOR_URL') {
+      return getAllSites().then((sites) => indexedScopeForUrl(message.url, sites));
+    }
 
     // popup/options 管理页使用：一次拿到当前站点的 site/pages/progress。
     if (message.type === 'GET_SITE_SNAPSHOT') return getSiteSnapshot(message.siteId);

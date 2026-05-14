@@ -1,5 +1,5 @@
-import { normalizePageUrl } from '../shared/url';
-import type { DocSiteAdapter, ProgressInsertionTargets, SidebarLink } from './types';
+import { normalizePageUrl } from '../../shared/url';
+import type { DocSiteAdapter, ProgressInsertionTargets, SidebarLink } from '../types';
 
 function sidebarRoot(): Element | null {
   return document.querySelector('nav[data-left-nav][data-left-nav-id="/codex"]');

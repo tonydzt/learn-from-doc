@@ -10,6 +10,8 @@
 - [ ] 参考<https://support.google.com/chrome_webstore/answer/1050673?hl=zh-Hans&visit_id=639140759631513827-2856677423&p=cws_badges&rd=1#cws_badges&zippy=%2C%E4%BA%86%E8%A7%A3-chrome-%E5%BA%94%E7%94%A8%E5%95%86%E5%BA%97%E5%BE%BD%E7%AB%A0获得chrome精选徽章>
 - [x] 增加一个site空索引的导入导出，只导出空索引，不导出进度
 - [ ] 有一种情况，打开目录树的某个目录页面后，发现跳转的页面的目录树变了，相当于这个目录包含了一个子目录，这种情况需要单独处理，这种应该加个配置，是否加载子目录的索引。
-- [ ] 增加一些通用框架的adapter和识别，比如MDN、Docusaurus之类的
+- [x] 增加一些通用框架的adapter和识别，比如MDN、Docusaurus之类的
 - [ ] 阅读记录的日报、周报、年报等pro功能
+- [ ] 这个chrome插件我需要做成精选，要满足精选插件的一些要求
+- [ ] 增加基于Playwright的E2E实际业务测试，来更好的保证开发测试闭环，分两层，通用用例和站点专用用例
 
