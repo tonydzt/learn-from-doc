@@ -1,4 +1,4 @@
-const READING_TRACKER_OWNER_ATTR = 'data-learn-from-doc-owner';
+const READING_TRACKER_OWNER_ATTR = 'data-developer-docs-progress-tracker-owner';
 
 export function claimReadingTrackerOwner(root: HTMLElement, ownerId: string): void {
   root.setAttribute(READING_TRACKER_OWNER_ATTR, ownerId);

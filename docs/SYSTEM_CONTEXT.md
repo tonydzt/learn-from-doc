@@ -1,4 +1,4 @@
-# Learn From Doc 系统上下文
+# Developer Docs Progress Tracker 系统上下文
 
 这份文档用于在重启新会话后，快速理解当前 Chrome 扩展的目标、架构、约定和实现现状。
 
@@ -32,7 +32,7 @@
 - 没有索引时，通过 popup 提供创建索引按钮。
 - 创建索引时扫描左侧全局导航栏对应的递归目录，保存目录、URL、标题、正文高度、导航顺序等信息。
 - 创建索引时打开页面只是机器测量，不算阅读进度。
-- 索引模式通过 hash 标记传递，例如 `#__learn_from_doc_indexing=1`。
+- 索引模式通过 hash 标记传递，例如 `#__developer_docs_progress_tracker_indexing=1`。
 - 目录可能懒加载或折叠，索引前需要展开。
 
 架构和技术栈要求：
@@ -168,7 +168,7 @@ SPA 路由处理：
 IndexedDB 数据库名：
 
 ```text
-learn-from-doc
+developer-docs-progress-tracker
 ```
 
 版本：
@@ -334,7 +334,7 @@ scope：
 索引 hash：
 
 ```text
-#__learn_from_doc_indexing=1
+#__developer_docs_progress_tracker_indexing=1
 ```
 
 ## 阅读流程
@@ -367,7 +367,7 @@ scope：
 
 - 等待 `requestIdleCallback` 或 fallback timeout。
 - 使用扩展自有 class：`lfd-total-card`, `lfd-page-badge` 等。
-- 使用统一 data 标记：`data-learn-from-doc`。
+- 使用统一 data 标记：`data-developer-docs-progress-tracker`。
 - 总进度插入 sidebar root 的第一个子元素之前。
 - 页面进度 badge 作为独立 `span` append 到对应 anchor 内。
 - MutationObserver 监听 body 子树变化，防抖后重新渲染注入 UI。
@@ -407,7 +407,7 @@ Options 管理页：
 日志统一前缀：
 
 ```text
-[learn-from-doc]
+[developer-docs-progress-tracker]
 ```
 
 默认日志：
@@ -419,13 +419,13 @@ Options 管理页：
 Verbose 日志：
 
 ```js
-localStorage.setItem('learn-from-doc:verbose', '1')
+localStorage.setItem('developer-docs-progress-tracker:verbose', '1')
 ```
 
 关闭：
 
 ```js
-localStorage.removeItem('learn-from-doc:verbose')
+localStorage.removeItem('developer-docs-progress-tracker:verbose')
 ```
 
 常见排查点：

@@ -19,7 +19,7 @@ export type MeasurementTimeoutLogDetails = {
 };
 
 export function indexFailureConsolePayload(details: IndexFailureLogDetails): [string, IndexFailureLogDetails] {
-  return ['[learn-from-doc] index failed in source tab', details];
+  return ['[developer-docs-progress-tracker] index failed in source tab', details];
 }
 
 export function measurementTimeoutLogDetails(input: MeasurementTimeoutInput): MeasurementTimeoutLogDetails {

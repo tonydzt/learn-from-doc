@@ -102,5 +102,5 @@ popup/options
 
 - 先画一张消息流图：以 `RuntimeMessage` 的每个 type 为边，连接 popup/options/content/background。
 - 跑 `npm test` 看哪些纯逻辑有测试；先理解 `src/progress/*`，它们不依赖浏览器环境。
-- 用浏览器扩展开发模式加载 `output/chrome-mv3` 后，配合 `localStorage.setItem('learn-from-doc:verbose', '1')` 看关键日志。
+- 用浏览器扩展开发模式加载 `output/chrome-mv3` 后，配合 `localStorage.setItem('developer-docs-progress-tracker:verbose', '1')` 看关键日志。
 - 新增功能前先写“入口是谁、消息是什么、数据落哪张表”三句话，通常能避免在 React 和扩展上下文之间迷路。

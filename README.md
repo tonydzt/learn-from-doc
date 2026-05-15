@@ -1,4 +1,4 @@
-# learn-from-doc
+# developer-docs-progress-tracker
 
 Chrome extension for tracking documentation reading progress.
 

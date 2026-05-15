@@ -113,7 +113,7 @@ export const LANGUAGE_NAMES: Record<LanguageCode, string> = {
 };
 
 export const EN_MESSAGES: Messages = {
-  'common.brand': 'Learn From Doc',
+  'common.brand': 'Developer Docs Progress Tracker',
   'common.on': 'On',
   'common.off': 'Off',
   'common.refresh': 'Refresh',
@@ -142,7 +142,7 @@ export const EN_MESSAGES: Messages = {
   'manager.enableSiteReadingProgress': 'Enable reading progress',
   'manager.backupAndImport': 'Backup and import',
   'manager.portableData': 'Portable data',
-  'manager.portableDataDescription': 'Export local indexes for backup or sharing, or import a compatible Learn From Doc file.',
+  'manager.portableDataDescription': 'Export local indexes for backup or sharing, or import a compatible Developer Docs Progress Tracker file.',
   'manager.includeReadingProgress': 'Include reading progress',
   'manager.exportAll': 'Export all',
   'manager.exportSelectedSite': 'Export site',
@@ -238,7 +238,7 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.enableSiteReadingProgress': '启用阅读进度',
     'manager.backupAndImport': '备份和导入',
     'manager.portableData': '便携数据',
-    'manager.portableDataDescription': '导出本地索引用于备份或分享，也可以导入兼容的 Learn From Doc 文件。',
+    'manager.portableDataDescription': '导出本地索引用于备份或分享，也可以导入兼容的 Developer Docs Progress Tracker 文件。',
     'manager.includeReadingProgress': '包含阅读进度',
     'manager.exportAll': '导出全部',
     'manager.exportSelectedSite': '导出站点',

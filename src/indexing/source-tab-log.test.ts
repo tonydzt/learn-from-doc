@@ -6,7 +6,7 @@ describe('source tab index failure logging', () => {
       message: 'Timed out while measuring page.',
       stack: 'Error: Timed out while measuring page.',
     })).toEqual([
-      '[learn-from-doc] index failed in source tab',
+      '[developer-docs-progress-tracker] index failed in source tab',
       {
         message: 'Timed out while measuring page.',
         stack: 'Error: Timed out while measuring page.',

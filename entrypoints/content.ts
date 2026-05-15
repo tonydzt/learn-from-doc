@@ -212,7 +212,7 @@ function injectStyles() {
       align-items: center;
       gap: 7px;
     }
-    .lfd-page-link-with-badge > :not([data-learn-from-doc="page-badge"]) {
+    .lfd-page-link-with-badge > :not([data-developer-docs-progress-tracker="page-badge"]) {
       flex: 1 1 auto;
       min-width: 0;
     }
@@ -284,7 +284,7 @@ async function renderProgressUi(siteId: string, language: AppSettings['language'
 
   injectStyles();
 
-  let totalCard = targets.sidebarRoot.querySelector<HTMLElement>('[data-learn-from-doc="total"]');
+  let totalCard = targets.sidebarRoot.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="total"]');
   if (!totalCard) {
     totalCard = document.createElement('div');
     totalCard.className = 'lfd-total-card';
@@ -306,7 +306,7 @@ async function renderProgressUi(siteId: string, language: AppSettings['language'
   totalCard.querySelector<HTMLElement>('.lfd-total-fill')!.style.width = `${total}%`;
 
   const targetAnchors = new Set(targets.pageLinkTargets.map((target) => target.anchor));
-  targets.sidebarRoot.querySelectorAll<HTMLElement>('[data-learn-from-doc="page-badge"]').forEach((badge) => {
+  targets.sidebarRoot.querySelectorAll<HTMLElement>('[data-developer-docs-progress-tracker="page-badge"]').forEach((badge) => {
     const anchor = badge.closest('a');
     if (!anchor || !targetAnchors.has(anchor)) {
       anchor?.classList.remove('lfd-page-link-with-badge');
@@ -316,7 +316,7 @@ async function renderProgressUi(siteId: string, language: AppSettings['language'
 
   for (const target of targets.pageLinkTargets) {
     const page = pageByUrl.get(target.url);
-    const existing = target.anchor.querySelector<HTMLElement>('[data-learn-from-doc="page-badge"]');
+    const existing = target.anchor.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="page-badge"]');
     const badge = existing ?? document.createElement('span');
     target.anchor.classList.add('lfd-page-link-with-badge');
     badge.className = 'lfd-page-badge';
@@ -334,13 +334,13 @@ async function renderProgressUi(siteId: string, language: AppSettings['language'
 
 // 移除右侧阅读地图；关闭设置、页面无效或 tracker 停止时会调用。
 function removeReadingMap() {
-  document.querySelector<HTMLElement>('[data-learn-from-doc="reading-map"]')?.remove();
+  document.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="reading-map"]')?.remove();
 }
 
 // 移除所有注入到文档页面里的阅读进度 UI。站点级总开关关闭时会调用。
 function removeProgressUi() {
-  document.querySelector<HTMLElement>('[data-learn-from-doc="total"]')?.remove();
-  document.querySelectorAll<HTMLElement>('[data-learn-from-doc="page-badge"]').forEach((badge) => {
+  document.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="total"]')?.remove();
+  document.querySelectorAll<HTMLElement>('[data-developer-docs-progress-tracker="page-badge"]').forEach((badge) => {
     badge.closest('a')?.classList.remove('lfd-page-link-with-badge');
     badge.remove();
   });
@@ -356,7 +356,7 @@ function renderReadingMap(ranges: ViewedRange[], viewportRange: ViewedRange | nu
 
   injectStyles();
 
-  let map = document.querySelector<HTMLElement>('[data-learn-from-doc="reading-map"]');
+  let map = document.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="reading-map"]');
   if (!map) {
     map = document.createElement('div');
     map.className = 'lfd-reading-map';

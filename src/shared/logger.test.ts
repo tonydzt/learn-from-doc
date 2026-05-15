@@ -5,7 +5,7 @@ describe('formatDebugLog', () => {
     expect(formatDebugLog('indexing measurement payload', {
       url: 'https://react.dev/learn',
       contentHeight: 1234,
-    })).toBe('[learn-from-doc] indexing measurement payload {"url":"https://react.dev/learn","contentHeight":1234}');
+    })).toBe('[developer-docs-progress-tracker] indexing measurement payload {"url":"https://react.dev/learn","contentHeight":1234}');
   });
 });
 

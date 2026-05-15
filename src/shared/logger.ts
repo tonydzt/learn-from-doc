@@ -1,11 +1,11 @@
 export function formatDebugLog(label: string, details?: unknown): string {
-  if (details === undefined) return `[learn-from-doc] ${label}`;
-  return `[learn-from-doc] ${label} ${JSON.stringify(details)}`;
+  if (details === undefined) return `[developer-docs-progress-tracker] ${label}`;
+  return `[developer-docs-progress-tracker] ${label} ${JSON.stringify(details)}`;
 }
 
 export function isVerboseLogEnabled(): boolean {
   try {
-    return globalThis.localStorage?.getItem('learn-from-doc:verbose') === '1';
+    return globalThis.localStorage?.getItem('developer-docs-progress-tracker:verbose') === '1';
   } catch {
     return false;
   }

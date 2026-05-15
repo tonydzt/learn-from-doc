@@ -2,7 +2,7 @@ import { mergeRanges, viewedHeight, type ViewedRange } from '../progress/ranges'
 import { normalizeSiteSettings, type SiteSettings } from '../settings/site-settings';
 import type { PortableSiteBundle } from './portable-data';
 
-const DB_NAME = 'learn-from-doc';
+const DB_NAME = 'developer-docs-progress-tracker';
 const DB_VERSION = 2;
 
 export type SiteRecord = {

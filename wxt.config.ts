@@ -4,8 +4,8 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   outDir: 'output',
   manifest: {
-    name: 'Learn From Doc',
-    description: 'Track reading progress across documentation sites.',
+    name: 'Developer Docs Progress Tracker',
+    description: 'Save and restore reading progress on developer documentation and long technical pages.',
     version: '0.1.0',
     permissions: ['activeTab', 'tabs', 'storage', 'scripting'],
     host_permissions: [

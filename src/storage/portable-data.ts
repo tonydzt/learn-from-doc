@@ -236,7 +236,7 @@ export function portableFileName(input: {
   const target = input.scope === 'all'
     ? 'all'
     : `${fileSafeSlug(input.site?.host ?? 'site')}-${fileSafeSlug(input.site?.scopeKey ?? 'index')}`;
-  return `learn-from-doc-${target}-${timestampSlug(input.exportedAt)}${input.fileExtension}`;
+  return `developer-docs-progress-tracker-${target}-${timestampSlug(input.exportedAt)}${input.fileExtension}`;
 }
 
 export function portableSerializedBlobPart(serialized: PortableSerializedData): string | ArrayBuffer {

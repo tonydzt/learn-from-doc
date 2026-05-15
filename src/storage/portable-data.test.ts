@@ -211,7 +211,7 @@ describe('portable data', () => {
   });
 
   it('builds portable file names for full and site exports', () => {
-    expect(portableFileName({ scope: 'all', exportedAt: 1715688240000, fileExtension: '.lfd.json.gz' })).toBe('learn-from-doc-all-20240514-2004.lfd.json.gz');
-    expect(portableFileName({ scope: 'site', site: reactSite, exportedAt: 1715688240000, fileExtension: '.lfd.json' })).toBe('learn-from-doc-react.dev-learn-20240514-2004.lfd.json');
+    expect(portableFileName({ scope: 'all', exportedAt: 1715688240000, fileExtension: '.lfd.json.gz' })).toBe('developer-docs-progress-tracker-all-20240514-2004.lfd.json.gz');
+    expect(portableFileName({ scope: 'site', site: reactSite, exportedAt: 1715688240000, fileExtension: '.lfd.json' })).toBe('developer-docs-progress-tracker-react.dev-learn-20240514-2004.lfd.json');
   });
 });
