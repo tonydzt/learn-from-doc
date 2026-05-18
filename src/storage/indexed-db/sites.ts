@@ -11,13 +11,6 @@ export async function getAllSites(): Promise<SiteRecord[]> {
   return tx(['sites'], 'readonly', ({ sites }) => requestToPromise<SiteRecord[]>(sites.getAll()));
 }
 
-// 新增或覆盖一个站点元数据记录。
-export async function putSite(site: SiteRecord): Promise<void> {
-  await tx(['sites'], 'readwrite', async ({ sites }) => {
-    sites.put(site);
-  });
-}
-
 // 删除一个文档范围的完整索引，包括 site、pages 和对应 progress。
 export async function deleteSiteIndex(siteId: string): Promise<void> {
   const [pages, progress] = await Promise.all([
