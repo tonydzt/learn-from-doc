@@ -85,9 +85,10 @@ function sendTabMessage<T>(tabId: number, message: RuntimeMessage): Promise<T> {
 async function injectContentScript(tabId: number): Promise<void> {
   const file = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
   if (!file) throw new Error('Content script file not found.');
+  const scriptFile = file as NonNullable<Parameters<typeof browser.scripting.executeScript>[0]['files']>[number];
   await browser.scripting.executeScript({
     target: { tabId },
-    files: [file],
+    files: [scriptFile],
   });
 }
 
