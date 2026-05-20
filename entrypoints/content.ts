@@ -770,6 +770,7 @@ export default defineContentScript({
     };
 
     browser.runtime.onMessage.addListener((message: RuntimeMessage) => {
+      if (message.type === 'CONTENT_SCRIPT_PING') return true;
       if (message.type === 'GET_PAGE_ADAPTER_CONTEXT') return getPageAdapterContext();
       // background.startIndex 使用：创建索引前收集当前页面左侧导航链接。
       if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
