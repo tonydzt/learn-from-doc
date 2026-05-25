@@ -74,6 +74,39 @@ function rejectPendingMeasurement(context: BackgroundContext, tabId: number, err
   pending.reject(error instanceof Error ? error : new Error(String(error)));
 }
 
+/** 判断测量 tab 是否已经完成导航并落到目标 origin，避免把脚本注入到 about:blank 等中间态。 */
+function isTabReadyForInjection(tab: chrome.tabs.Tab, targetOrigin: string): boolean {
+  if (tab.status !== 'complete' || !tab.url) return false;
+  try {
+    return new URL(tab.url).origin === targetOrigin;
+  } catch {
+    return false;
+  }
+}
+
+/** Firefox 新建后台 tab 后可能不会立刻具备目标站点权限，注入前等到目标页面加载完成。 */
+async function waitForFirefoxIndexingTab(tabId: number, targetUrl: string): Promise<void> {
+  const targetOrigin = new URL(targetUrl).origin;
+  const tab = await browser.tabs.get(tabId);
+  if (isTabReadyForInjection(tab, targetOrigin)) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = globalThis.setTimeout(() => {
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      reject(new Error('Timed out waiting for Firefox indexing tab to finish loading.'));
+    }, 10000);
+
+    const onUpdated = (updatedTabId: number, _changeInfo: chrome.tabs.TabChangeInfo, updatedTab: chrome.tabs.Tab) => {
+      if (updatedTabId !== tabId || !isTabReadyForInjection(updatedTab, targetOrigin)) return;
+      globalThis.clearTimeout(timeout);
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+
+    browser.tabs.onUpdated.addListener(onUpdated);
+  });
+}
+
 /**
  * 在隐藏标签页中打开目标文档并完成一次页面测量。
  * 无论成功失败，最终都会尝试关闭用于测量的标签页。
@@ -84,8 +117,9 @@ async function measurePage(
 ): Promise<{ tabId: number; payload: IndexPageMeasuredMessage['payload'] }> {
   const startedAt = Date.now();
   lfdDebug('opening indexing tab', { url });
+  const indexingUrl = withIndexingHash(url);
   const tab = await browser.tabs.create({
-    url: withIndexingHash(url),
+    url: indexingUrl,
     active: false,
   });
   if (tab.id == null) throw new Error('Could not create indexing tab.');
@@ -94,6 +128,13 @@ async function measurePage(
 
   try {
     try {
+      if (import.meta.env.FIREFOX) {
+        lfdDebug('firefox indexing tab wait before injection', {
+          tabId: tab.id,
+          url: indexingUrl,
+        });
+        await waitForFirefoxIndexingTab(tab.id, indexingUrl);
+      }
       await injectContentScript(tab.id);
     } catch (error) {
       // 注入失败时立即拒绝等待中的测量 Promise，避免悬挂到超时。

@@ -16,7 +16,7 @@ export function shouldRequestPersistentOriginPermission(input: {
   url: string | URL | undefined;
   adapterKind?: 'site' | 'framework';
 }): boolean {
-  return input.adapterKind === 'framework' && originPermissionPatternForUrl(input.url) != null;
+  return input.adapterKind != null && originPermissionPatternForUrl(input.url) != null;
 }
 
 export function indexedAutoInjectTargetForUrl(input: string | URL | undefined, sites: SiteRecord[]): {

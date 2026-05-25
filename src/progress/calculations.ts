@@ -7,6 +7,7 @@ export function pageProgressPercent(page: PageIndexRecord | undefined, progress:
   return percent(progress?.viewedHeight ?? 0, page?.contentHeight ?? 0);
 }
 
+// 判断页面是否为子目录页面
 export function isSubdirectoryPage(page: PageIndexRecord | undefined): boolean {
   return Boolean(page && page.contentHeight <= 0);
 }

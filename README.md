@@ -1,6 +1,6 @@
 # developer-docs-progress-tracker
 
-Chrome extension for tracking documentation reading progress.
+Chrome and Firefox extension for tracking documentation reading progress.
 
 ## Stack
 
@@ -14,6 +14,8 @@ Chrome extension for tracking documentation reading progress.
 npm install
 npm run dev
 npm run build
+npm run build:chrome
+npm run build:firefox
 npm test
 ```
 
@@ -21,4 +23,5 @@ Build output:
 
 ```text
 output/chrome-mv3
+output/firefox-mv3
 ```

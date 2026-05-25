@@ -8,10 +8,16 @@ describe('popup permissions policy', () => {
     })).toBe(true);
   });
 
-  it('does not request persistent origin permissions for site adapters', () => {
+  it('requests persistent origin permissions for site adapters', () => {
     expect(shouldRequestPersistentOriginPermission({
       url: 'https://react.dev/learn',
       adapterKind: 'site',
+    })).toBe(true);
+  });
+
+  it('does not request persistent origin permissions without an adapter kind', () => {
+    expect(shouldRequestPersistentOriginPermission({
+      url: 'https://react.dev/learn',
     })).toBe(false);
   });
 });

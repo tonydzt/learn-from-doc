@@ -3,7 +3,8 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   outDir: 'output',
-  manifest: {
+  targetBrowsers: ['chrome', 'firefox'],
+  manifest: ({ browser }) => ({
     name: 'Developer Docs Progress Tracker',
     description: 'Save and restore reading progress on developer documentation and long technical pages.',
     version: '0.1.0',
@@ -17,5 +18,17 @@ export default defineConfig({
       'https://*/*',
       'http://*/*',
     ],
-  },
+    ...(browser === 'firefox'
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              id: '{4bf5ca62-3a2b-467d-b915-2087fbdf8a51}',
+              data_collection_permissions: {
+                required: ['none'],
+              },
+            },
+          },
+        }
+      : {}),
+  }),
 });
