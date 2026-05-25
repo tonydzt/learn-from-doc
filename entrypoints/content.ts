@@ -81,7 +81,7 @@ export default defineContentScript({
 
     // 响应 popup/options/background 发给当前 tab 的消息。
     // 入口层只做分发，具体索引、adapter context、阅读 UI 逻辑都在 src/content/* 模块里。
-    browser.runtime.onMessage.addListener((message: RuntimeMessage) => {
+    const onRuntimeMessage = (message: RuntimeMessage) => {
       if (message.type === 'CONTENT_SCRIPT_PING') return true;
       if (message.type === 'GET_PAGE_ADAPTER_CONTEXT') return getPageAdapterContext();
       if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
@@ -91,7 +91,8 @@ export default defineContentScript({
         return stopTracking().then(removeProgressUi);
       }
       return undefined;
-    });
+    };
+    browser.runtime.onMessage.addListener(onRuntimeMessage);
 
     // WXT 会在 history navigation 时触发这个事件；React/Docusaurus 这类 SPA 不会重新注入 content script。
     ctx.addEventListener(window, 'wxt:locationchange', () => {
@@ -104,7 +105,8 @@ export default defineContentScript({
       }
     });
     ctx.onInvalidated(() => {
-      // 扩展热更新、content script 失效或页面卸载前尽量清理 tracker。
+      // 扩展热更新、content script 失效或页面卸载前清理入口监听，并尽量停止 tracker。
+      browser.runtime.onMessage.removeListener(onRuntimeMessage);
       void stopTracking();
     });
 
