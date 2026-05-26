@@ -5,8 +5,8 @@ export function fmtPercent(value: number): string {
   return `${Math.round(value)}%`;
 }
 
-export function fmtDate(value: number): string {
-  return new Intl.DateTimeFormat(undefined, {
+export function fmtDate(value: number, language: LanguageCode): string {
+  return new Intl.DateTimeFormat(language, {
     month: 'short',
     day: '2-digit',
     hour: '2-digit',

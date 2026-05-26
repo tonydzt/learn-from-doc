@@ -63,7 +63,7 @@ export function SitesPage(props: SitesPageProps) {
                 <button className="site-list-main" type="button" onClick={() => props.selectSite(overview.site.siteId)}>
                   <span>
                     <strong>{overview.site.scopeTitle}</strong>
-                    <small>{overview.site.host} · {t(props.language, 'common.updated', { date: fmtDate(overview.updatedAt) })}</small>
+                    <small>{overview.site.host} · {t(props.language, 'common.updated', { date: fmtDate(overview.updatedAt, props.language) })}</small>
                   </span>
                   <span className="site-list-metrics">
                     <small>{t(props.language, 'manager.pages')}: {overview.pageCount}</small>

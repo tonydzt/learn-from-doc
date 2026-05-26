@@ -49,7 +49,7 @@ export function SiteDetailPage(props: SiteDetailPageProps) {
             <h2>{props.selected?.site.scopeTitle ?? t(props.language, 'manager.indexes')}</h2>
             <p className="muted">
               {props.selected
-                ? `${props.selected.site.host} · ${t(props.language, 'common.updated', { date: fmtDate(props.selected.site.updatedAt) })}`
+                ? `${props.selected.site.host} · ${t(props.language, 'common.updated', { date: fmtDate(props.selected.site.updatedAt, props.language) })}`
                 : t(props.language, 'manager.selectIndex')}
             </p>
           </div>
@@ -103,7 +103,7 @@ export function SiteDetailPage(props: SiteDetailPageProps) {
 
         {props.detailTab === 'progress' && (
           <SiteProgressTab
-            fmtDate={fmtDate}
+            fmtDate={(value) => fmtDate(value, props.language)}
             fmtHeight={fmtHeight}
             language={props.language}
             selected={props.selected}
