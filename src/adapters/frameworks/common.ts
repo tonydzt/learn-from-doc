@@ -10,6 +10,7 @@ type FrameworkAdapterConfig = {
   expandableSelectors?: string[];
   progressRootSelectors?: string[];
   requiresHydrationWait?: boolean;
+  requiresIndexingLoadWait?: boolean;
 };
 
 function firstElement<T extends Element>(selectors: string[], root: ParentNode = document): T | null {
@@ -83,6 +84,7 @@ function scopeKeyFromSidebar(root: Element, host: string): string {
     .map((anchor) => new URL(anchor.href, location.href))
     .filter((url) => url.hostname === host)
     .map((url) => url.pathname);
+  if (paths.includes('/')) return 'root';
   const prefix = commonPathPrefix(paths);
   return pathSegments(prefix)[0] ?? pathSegments(location.pathname)[0] ?? 'root';
 }
@@ -108,6 +110,7 @@ export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteA
     kind: 'framework',
     frameworkName: config.frameworkName,
     requiresHydrationWait: config.requiresHydrationWait,
+    requiresIndexingLoadWait: config.requiresIndexingLoadWait,
 
     matches() {
       return Boolean(detect());

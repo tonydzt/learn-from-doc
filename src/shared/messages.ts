@@ -9,6 +9,7 @@ export type IndexLinksResponse = {
   host: string;
   scopeKey: string;
   scopeTitle: string;
+  requiresIndexingLoadWait?: boolean;
   links: Array<{ url: string; title: string }>;
 };
 

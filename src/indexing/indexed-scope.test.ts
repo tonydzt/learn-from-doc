@@ -27,4 +27,12 @@ describe('indexedScopeForUrl', () => {
       site('ui.shadcn.com', 'docs'),
     ])).toBeNull();
   });
+
+  it('matches every path on the host for a root-wide framework scope', () => {
+    const sites = [site('docs.sillytavern.app', 'root')];
+
+    expect(indexedScopeForUrl('https://docs.sillytavern.app/usage/', sites)?.siteId).toBe('docs.sillytavern.app::root');
+    expect(indexedScopeForUrl('https://docs.sillytavern.app/installation/windows/', sites)?.siteId).toBe('docs.sillytavern.app::root');
+    expect(indexedScopeForUrl('https://example.com/usage/', sites)).toBeNull();
+  });
 });

@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { measurementTimeoutLogDetails } from '../../indexing/source-tab-log';
 import { lfdDebug } from '../../shared/logger';
-import type { IndexPageMeasuredMessage, RuntimeMessage, StartIndexResult } from '../../shared/messages';
+import type { IndexLinksResponse, IndexPageMeasuredMessage, RuntimeMessage, StartIndexResult } from '../../shared/messages';
 import { normalizePageUrl, siteIdFor, withIndexingHash } from '../../shared/url';
 import {
   getSite,
@@ -84,8 +84,8 @@ function isTabReadyForInjection(tab: chrome.tabs.Tab, targetOrigin: string): boo
   }
 }
 
-/** Firefox 新建后台 tab 后可能不会立刻具备目标站点权限，注入前等到目标页面加载完成。 */
-async function waitForFirefoxIndexingTab(tabId: number, targetUrl: string): Promise<void> {
+/** 新建后台测量 tab 后，先等目标页面加载完成，再注入会读取 DOM 的 content script。 */
+async function waitForIndexingTab(tabId: number, targetUrl: string): Promise<void> {
   const targetOrigin = new URL(targetUrl).origin;
   const tab = await browser.tabs.get(tabId);
   if (isTabReadyForInjection(tab, targetOrigin)) return;
@@ -93,7 +93,7 @@ async function waitForFirefoxIndexingTab(tabId: number, targetUrl: string): Prom
   await new Promise<void>((resolve, reject) => {
     const timeout = globalThis.setTimeout(() => {
       browser.tabs.onUpdated.removeListener(onUpdated);
-      reject(new Error('Timed out waiting for Firefox indexing tab to finish loading.'));
+      reject(new Error('Timed out waiting for indexing tab to finish loading.'));
     }, 10000);
 
     const onUpdated = (updatedTabId: number, _changeInfo: chrome.tabs.TabChangeInfo, updatedTab: chrome.tabs.Tab) => {
@@ -114,6 +114,7 @@ async function waitForFirefoxIndexingTab(tabId: number, targetUrl: string): Prom
 async function measurePage(
   context: BackgroundContext,
   url: string,
+  requiresIndexingLoadWait: boolean,
 ): Promise<{ tabId: number; payload: IndexPageMeasuredMessage['payload'] }> {
   const startedAt = Date.now();
   lfdDebug('opening indexing tab', { url });
@@ -128,12 +129,12 @@ async function measurePage(
 
   try {
     try {
-      if (import.meta.env.FIREFOX) {
-        lfdDebug('firefox indexing tab wait before injection', {
+      if (import.meta.env.FIREFOX || requiresIndexingLoadWait) {
+        lfdDebug('indexing tab wait before injection', {
           tabId: tab.id,
           url: indexingUrl,
         });
-        await waitForFirefoxIndexingTab(tab.id, indexingUrl);
+        await waitForIndexingTab(tab.id, indexingUrl);
       }
       await injectContentScript(tab.id);
     } catch (error) {
@@ -182,12 +183,7 @@ export async function startIndex(context: BackgroundContext, tabId: number): Pro
     current: 0,
     total: 0,
   });
-  const indexLinks = await sendTabMessage<{
-    host: string;
-    scopeKey: string;
-    scopeTitle: string;
-    links: Array<{ url: string; title: string }>;
-  }>(tabId, { type: 'COLLECT_INDEX_LINKS' });
+  const indexLinks = await sendTabMessage<IndexLinksResponse>(tabId, { type: 'COLLECT_INDEX_LINKS' });
 
   if (indexLinks.links.length === 0) throw new Error('No document links found in the current sidebar.');
   lfdDebug('collected sidebar links', {
@@ -217,7 +213,7 @@ export async function startIndex(context: BackgroundContext, tabId: number): Pro
     currentUrl: indexLinks.links[0]?.url,
   });
   for (const [order, link] of indexLinks.links.entries()) {
-    const measured = await measurePage(context, link.url);
+    const measured = await measurePage(context, link.url, indexLinks.requiresIndexingLoadWait === true);
     pages.push({
       siteId,
       url: normalizePageUrl(measured.payload.url),

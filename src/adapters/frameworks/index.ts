@@ -2,6 +2,7 @@ import { DocusaurusAdapter } from './docusaurus';
 import { FumadocsAdapter } from './fumadocs';
 import { MaterialMkDocsAdapter } from './material-mkdocs';
 import { NextraAdapter } from './nextra';
+import { RetypeAdapter } from './retype';
 import { StarlightAdapter } from './starlight';
 import { VitePressAdapter } from './vitepress';
 
@@ -12,4 +13,5 @@ export const FrameworkAdapters = [
   FumadocsAdapter,
   StarlightAdapter,
   MaterialMkDocsAdapter,
+  RetypeAdapter,
 ];

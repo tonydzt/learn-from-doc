@@ -39,6 +39,7 @@ export async function collectIndexLinks(): Promise<IndexLinksResponse> {
   });
   return {
     ...scope,
+    requiresIndexingLoadWait: adapter.requiresIndexingLoadWait,
     links,
   };
 }

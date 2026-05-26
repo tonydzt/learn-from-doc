@@ -82,6 +82,19 @@ const cases = [
       <main class="md-main"><article class="md-content__inner">Material article</article></main>
     `,
   },
+  {
+    id: 'framework-retype',
+    frameworkName: 'Retype',
+    url: 'https://react.dev/usage/',
+    html: `
+      <aside id="retype-sidebar-left">
+        <a href="/">What is SillyTavern?</a>
+        <a href="/installation/">Installation</a>
+      </aside>
+      <main id="retype-content">Retype article</main>
+      <meta name="generator" content="Retype 4.5.3">
+    `,
+  },
 ];
 
 describe('framework adapters', () => {
@@ -182,6 +195,54 @@ describe('framework adapters', () => {
       'https://react.dev/docs/getting-started',
       'https://react.dev/docs/api',
     ]);
+  });
+
+  it('treats Retype navigation containing the home page as one root scope', () => {
+    history.replaceState(null, '', 'https://react.dev/usage/');
+    document.body.innerHTML = `
+      <aside id="retype-sidebar-left">
+        <a href="/">What is SillyTavern?</a>
+        <a href="/usage/">Usage</a>
+        <a href="/installation/">Installation</a>
+      </aside>
+      <main id="retype-content">Usage article</main>
+      <meta name="generator" content="Retype 4.5.3">
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-retype');
+
+    expect(adapter?.getDocScope()).toEqual({
+      host: 'react.dev',
+      scopeKey: 'root',
+      scopeTitle: 'Retype Docs',
+      frameworkName: 'Retype',
+    });
+    expect(adapter?.requiresIndexingLoadWait).toBe(true);
+  });
+
+  it('inserts Retype total progress within the SimpleBar scroll content below its filter', () => {
+    history.replaceState(null, '', 'https://react.dev/usage/');
+    document.body.innerHTML = `
+      <aside id="retype-sidebar-left">
+        <div class="absolute top-0 left-0 right-0 h-16"><input type="text"></div>
+        <ul class="overflow-y-auto flex-1 pl-3 md:mt-16 simplebar-scrollable-y">
+          <div class="simplebar-wrapper">
+            <div class="simplebar-content-wrapper">
+              <div class="simplebar-content">
+                <li><a href="/">What is SillyTavern?</a></li>
+                <li><a href="/usage/">Usage</a></li>
+              </div>
+            </div>
+          </div>
+        </ul>
+      </aside>
+      <main id="retype-content">Usage article</main>
+      <meta name="generator" content="Retype 4.5.3">
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-retype');
+    const targets = adapter?.getProgressInsertionTargets();
+
+    expect(targets?.sidebarRoot).toBe(document.querySelector('#retype-sidebar-left .simplebar-content'));
+    expect(targets?.totalProgressBefore).toBe(document.querySelector('#retype-sidebar-left .simplebar-content li'));
   });
 
   it('inserts Starlight total progress inside the sidebar content container', () => {

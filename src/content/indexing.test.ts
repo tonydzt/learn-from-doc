@@ -1,5 +1,10 @@
 import type { DocSiteAdapter } from '../adapters/types';
-import { getPageAdapterContext, indexMeasurementPayloadForPage } from './indexing';
+import { getAdapterForPage } from '../adapters';
+import { collectIndexLinks, getPageAdapterContext, indexMeasurementPayloadForPage } from './indexing';
+
+vi.mock('../adapters', () => ({
+  getAdapterForPage: vi.fn(),
+}));
 
 function adapter(overrides: Partial<DocSiteAdapter> = {}): DocSiteAdapter {
   return {
@@ -37,6 +42,17 @@ describe('content indexing helpers', () => {
   it('returns unsupported context when no adapter scope is available', () => {
     expect(getPageAdapterContext(null)).toEqual({ supported: false });
     expect(getPageAdapterContext(adapter({ getDocScope: () => null }))).toEqual({ supported: false });
+  });
+
+  it('reports whether the selected adapter requires waiting for indexing page load', async () => {
+    vi.mocked(getAdapterForPage).mockReturnValue(adapter({
+      requiresIndexingLoadWait: true,
+      getSidebarLinks: () => [],
+    }));
+
+    await expect(collectIndexLinks()).resolves.toMatchObject({
+      requiresIndexingLoadWait: true,
+    });
   });
 
   it('measures indexable article pages', () => {
