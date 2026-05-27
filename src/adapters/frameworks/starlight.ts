@@ -1,6 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
-// Typical test site: Netlify Docs, https://docs.netlify.com/
+// Manual test sites:
+// - Netlify Docs, https://docs.netlify.com/
+// - Cloudflare Developer Docs, https://developers.cloudflare.com/
+// - sharp, https://sharp.pixelplumbing.com/
 export const StarlightAdapter = createFrameworkAdapter({
   id: 'framework-starlight',
   frameworkName: 'Starlight',

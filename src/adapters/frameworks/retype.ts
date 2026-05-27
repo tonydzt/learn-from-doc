@@ -1,6 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
-// Typical test site: SillyTavern Docs, https://docs.sillytavern.app/
+// Manual test sites:
+// - SillyTavern Docs, https://docs.sillytavern.app/
+// - Camoufox, https://camoufox.com/
+// - TurboStack Docs, https://docs.turbostack.app/
 export const RetypeAdapter = createFrameworkAdapter({
   id: 'framework-retype',
   frameworkName: 'Retype',

@@ -79,17 +79,17 @@
 
 对其他 HTTPS 文档站点，popup 可以检测以下文档框架。检测成功后，扩展会基于该站点的侧边栏和正文结构创建索引。
 
-| 框架 | 代码中给出的典型测试站点 |
+| 框架 | 代码中给出的人工测试站点 |
 | --- | --- |
-| Docusaurus | React Native Docs (`https://reactnative.dev/docs/getting-started`) |
-| VitePress | Vite Docs (`https://vite.dev/guide/`) |
-| Nextra | Nextra Docs (`https://nextra.site/docs`) |
-| Fumadocs | shadcn/ui Docs (`https://ui.shadcn.com/docs`) |
-| Starlight | Netlify Docs (`https://docs.netlify.com/`) |
-| Material for MkDocs | Pydantic Docs (`https://docs.pydantic.dev/latest/`) |
-| Retype | SillyTavern Docs (`https://docs.sillytavern.app/`) |
+| Docusaurus | React Native Docs (`https://reactnative.dev/docs/getting-started`)、Jest (`https://jestjs.io/docs/getting-started`)、WebdriverIO (`https://webdriver.io/docs/gettingstarted/`) |
+| VitePress | Vite Docs (`https://vite.dev/guide/`)、VitePress (`https://vitepress.dev/guide/getting-started`)、Vitest (`https://vitest.dev/guide/`) |
+| Nextra | Nextra Docs (`https://nextra.site/docs`)、Docs Demo App (`https://docs-demo-app.vercel.app/`)、React Flow (`https://reactflow.dev/learn`) |
+| Fumadocs | shadcn/ui Docs (`https://ui.shadcn.com/docs`)、Fumadocs (`https://www.fumadocs.dev/docs/ui`)、Flags SDK (`https://flags-sdk.dev/docs/frameworks/next`) |
+| Starlight | Netlify Docs (`https://docs.netlify.com/`)、Cloudflare Developer Docs (`https://developers.cloudflare.com/`)、sharp (`https://sharp.pixelplumbing.com/`) |
+| Material for MkDocs | Pydantic Docs (`https://docs.pydantic.dev/latest/`)、FastAPI (`https://fastapi.tiangolo.com/`)、Typer (`https://typer.tiangolo.com/`) |
+| Retype | SillyTavern Docs (`https://docs.sillytavern.app/`)、Camoufox (`https://camoufox.com/`)、TurboStack Docs (`https://docs.turbostack.app/`) |
 
-这些典型站点来自 adapter 源码注释，用于说明框架适配目标；它们不等同于完整、永久保证的网站兼容名单。
+这些人工测试站点来自 adapter 源码注释，用于验证框架适配目标；它们不等同于完整、永久保证的网站兼容名单。
 
 ## 界面语言
 

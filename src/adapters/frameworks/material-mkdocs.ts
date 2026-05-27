@@ -1,6 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
-// Typical test site: Pydantic Docs, https://docs.pydantic.dev/latest/
+// Manual test sites:
+// - Pydantic Docs, https://docs.pydantic.dev/latest/
+// - FastAPI, https://fastapi.tiangolo.com/
+// - Typer, https://typer.tiangolo.com/
 export const MaterialMkDocsAdapter = createFrameworkAdapter({
   id: 'framework-material-mkdocs',
   frameworkName: 'Material for MkDocs',

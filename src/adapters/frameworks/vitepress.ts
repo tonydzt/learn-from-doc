@@ -1,6 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
-// Typical test site: Vite Docs, https://vite.dev/guide/
+// Manual test sites:
+// - Vite Docs, https://vite.dev/guide/
+// - VitePress, https://vitepress.dev/guide/getting-started
+// - Vitest, https://vitest.dev/guide/
 export const VitePressAdapter = createFrameworkAdapter({
   id: 'framework-vitepress',
   frameworkName: 'VitePress',
