@@ -11,7 +11,7 @@ export default defineBackground(() => {
   // WXT registers this callback as the MV3 background service worker entry.
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status !== 'complete') return;
-    void maybeInjectIndexedTab(tabId, tab.url).catch((error) => {
+    void maybeInjectIndexedTab(tabId, tab.url, 'background:onUpdated').catch((error) => {
       lfdDebug('failed to auto-inject indexed tab after update', {
         tabId,
         url: tab.url,
@@ -22,7 +22,7 @@ export default defineBackground(() => {
 
   browser.tabs.onActivated.addListener((activeInfo) => {
     void browser.tabs.get(activeInfo.tabId).then((tab) => {
-      return maybeInjectIndexedTab(tab.id, tab.url);
+      return maybeInjectIndexedTab(tab.id, tab.url, 'background:onActivated');
     }).catch((error) => {
       lfdDebug('failed to auto-inject indexed tab after activation', {
         tabId: activeInfo.tabId,

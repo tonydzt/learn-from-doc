@@ -1,6 +1,8 @@
 import { browser } from 'wxt/browser';
 import { indexedAutoInjectTargetForUrl } from '../../shared/origin-permissions';
 import type { RuntimeMessage } from '../../shared/messages';
+import { INJECTION_SOURCE_ATTR } from '../../shared/constants';
+import { normalizePageUrl } from '../../shared/url';
 import { indexFailureConsolePayload } from '../../indexing/source-tab-log';
 import { getAllSites } from '../../storage/db';
 import { lfdDebug } from '../../shared/logger';
@@ -12,45 +14,59 @@ export function sendTabMessage<T>(tabId: number, message: RuntimeMessage): Promi
   return browser.tabs.sendMessage(tabId, message) as Promise<T>;
 }
 
+async function markContentScriptInjectionSource(tabId: number, source: string): Promise<void> {
+  await browser.scripting.executeScript({
+    target: { tabId },
+    func: (attributeName, injectionSource) => {
+      document.documentElement.setAttribute(attributeName, injectionSource);
+    },
+    args: [INJECTION_SOURCE_ATTR, source],
+  });
+}
+
+const injectedAutoTargetByTab = new Map<number, string>();
+const pendingAutoInjectionByTarget = new Map<string, Promise<void>>();
+
 /** 手动向标签页注入 manifest 中声明的首个 content script。 */
-export async function injectContentScript(tabId: number): Promise<void> {
+export async function injectContentScript(tabId: number, source = 'background:manual'): Promise<void> {
   // 复用 manifest 的 content_scripts 配置，避免硬编码脚本路径。
   const file = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
   if (!file) throw new Error('Content script file not found.');
   // executeScript 的 files 需要精确类型，这里做一次约束收窄。
   const scriptFile = file as NonNullable<Parameters<typeof browser.scripting.executeScript>[0]['files']>[number];
+  lfdDebug('content script injection requested', { tabId, source });
+  await markContentScriptInjectionSource(tabId, source);
   await browser.scripting.executeScript({
     target: { tabId },
     files: [scriptFile],
   });
 }
 
-/** 通过探测消息判断目标标签页是否已加载 content script。 */
-async function hasContentScript(tabId: number): Promise<boolean> {
-  try {
-    const ok = await sendTabMessage<boolean>(tabId, { type: 'CONTENT_SCRIPT_PING' });
-    return ok === true;
-  } catch {
-    // 发送失败通常说明脚本未注入，或页面不支持扩展消息通信。
-    return false;
-  }
-}
-
-/** 仅在缺失时注入 content script，避免重复注入。 */
-async function injectContentScriptIfMissing(tabId: number): Promise<void> {
-  if (await hasContentScript(tabId)) return;
-  await injectContentScript(tabId);
-}
-
 /** 对命中自动注入规则且已授权的页面，确保 content script 存在。 */
-export async function maybeInjectIndexedTab(tabId: number | undefined, url: string | undefined): Promise<void> {
+export async function maybeInjectIndexedTab(tabId: number | undefined, url: string | undefined, source = 'background:auto'): Promise<void> {
   if (tabId == null || !url) return;
   const target = indexedAutoInjectTargetForUrl(url, await getAllSites());
   if (!target) return;
-  // 只有拿到对应 origin 权限后，才允许执行注入。
-  const hasPermission = await browser.permissions.contains({ origins: [target.originPattern] });
-  if (!hasPermission) return;
-  await injectContentScriptIfMissing(tabId);
+  const normalizedUrl = normalizePageUrl(url);
+  if (injectedAutoTargetByTab.get(tabId) === normalizedUrl) return;
+
+  const pendingKey = `${tabId}:${normalizedUrl}`;
+  const pending = pendingAutoInjectionByTarget.get(pendingKey);
+  if (pending) return pending;
+
+  const injection = (async () => {
+    // 只有拿到对应 origin 权限后，才允许执行注入。
+    const hasPermission = await browser.permissions.contains({ origins: [target.originPattern] });
+    if (!hasPermission || injectedAutoTargetByTab.get(tabId) === normalizedUrl) return;
+    await injectContentScript(tabId, source);
+    injectedAutoTargetByTab.set(tabId, normalizedUrl);
+  })();
+  pendingAutoInjectionByTarget.set(pendingKey, injection);
+  try {
+    await injection;
+  } finally {
+    pendingAutoInjectionByTarget.delete(pendingKey);
+  }
 }
 
 // ---------------------------- 广播变更 ----------------------------

@@ -35,6 +35,16 @@ export function shouldStartTrackingOnVisibilityChange(
   return visibilityState === 'visible' && !hasActiveTracker;
 }
 
+export function shouldRestartTrackingForUrl(input: {
+  activeTrackedUrl: string | undefined;
+  forceRefresh: boolean;
+  hasActiveTracker: boolean;
+  nextTrackedUrl: string;
+}): boolean {
+  if (input.forceRefresh) return true;
+  return !input.hasActiveTracker || input.activeTrackedUrl !== input.nextTrackedUrl;
+}
+
 export function shouldStartReadingTracker(readingProgressEnabled: boolean | undefined): boolean {
   return readingProgressEnabled !== false;
 }

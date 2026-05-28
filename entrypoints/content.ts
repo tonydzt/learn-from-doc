@@ -1,12 +1,17 @@
 import { browser } from 'wxt/browser';
 import { getAdapterForPage, getAdapterForUrl } from '../src/adapters';
 import { collectIndexLinks, getPageAdapterContext, runIndexMeasurement } from '../src/content/indexing';
-import { claimReadingTrackerOwner, shouldStartTrackingOnVisibilityChange } from '../src/content/reading-lifecycle';
+import {
+  claimReadingTrackerOwner,
+  shouldRestartTrackingForUrl,
+  shouldStartTrackingOnVisibilityChange,
+} from '../src/content/reading-lifecycle';
 import { runReadingTracker, type ReadingTrackerStop } from '../src/content/reading-tracker';
 import { removeProgressUi } from '../src/content/progress-ui';
 import { getIndexedScopeForCurrentPage, hasOriginPermissionFromBackground } from '../src/content/runtime-client';
 import type { RuntimeMessage } from '../src/shared/messages';
 import { lfdDebug } from '../src/shared/logger';
+import { INJECTION_SOURCE_ATTR } from '../src/shared/constants';
 import { isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
 
 // 判断当前页面是否允许启动阅读相关能力。
@@ -28,8 +33,10 @@ export default defineContentScript({
     // 每次 content script 实例启动时认领一个 ownerId。
     // 如果热更新、重复注入或 SPA 路由切换产生旧 tracker，owner 校验会阻止旧实例继续写进度。
     const ownerId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const injectionSource = document.documentElement.getAttribute(INJECTION_SOURCE_ATTR) ?? 'manifest-or-unknown';
     claimReadingTrackerOwner(document.documentElement, ownerId);
     let activeTracker: { controller: AbortController; stop: ReadingTrackerStop } | undefined;
+    let activeTrackedUrl: string | undefined;
     // routeVersion 用来丢弃过期的异步 startTracking 结果，避免慢启动的旧页面 tracker 覆盖新页面。
     let routeVersion = 0;
 
@@ -43,6 +50,7 @@ export default defineContentScript({
     const stopTracking = async () => {
       const tracker = activeTracker;
       activeTracker = undefined;
+      activeTrackedUrl = undefined;
       if (!tracker) return;
       tracker.controller.abort();
       await tracker.stop();
@@ -50,7 +58,25 @@ export default defineContentScript({
 
     // 为当前 URL 启动阅读 tracker。
     // 这个函数会先停掉旧 tracker，再按当前页面状态决定是否真的启动新 tracker。
-    const startTracking = async (reason: string) => {
+    const startTracking = async (reason: string, options: { forceRefresh?: boolean } = {}) => {
+      const nextTrackedUrl = normalizePageUrl(location.href);
+      // 这段逻辑是为了优化部分文档，在同一个页面，经过不同锚点的时候，页面url发生变化的情况，因为url后面带着#hash锚点的名字，这种情况不希望重启 tracker。因为重启tracker会卸载ui然后重新加载ui，导致页面重新渲染，发生闪烁效果，体验不好。
+      // activeTrackedUrl 只有在 tracker 成功启动后才赋值，所以首次启动时它是 undefined；
+      // 这时 activeTracker 也为空，shouldRestartTrackingForUrl 会允许启动。
+      // 例如：
+      // - 首次打开 /tutorial/body/#without-pydantic：
+      //   activeTracker=false，activeTrackedUrl=undefined -> 启动 tracker。
+      // - 滚动到 /tutorial/body/#editor-support：
+      //   activeTracker=true，activeTrackedUrl 和 nextTrackedUrl 都是去掉 hash 后的 /tutorial/body/ -> 跳过重启。
+      // - 索引完成或站点设置重新启用：
+      //   forceRefresh=true -> 即使 normalized URL 没变，也强制重启以刷新页面索引/设置状态。
+      if (!shouldRestartTrackingForUrl({
+        activeTrackedUrl,
+        forceRefresh: options.forceRefresh === true,
+        hasActiveTracker: Boolean(activeTracker),
+        nextTrackedUrl,
+      })) return;
+
       const version = ++routeVersion;
       await stopTracking();
 
@@ -63,6 +89,7 @@ export default defineContentScript({
         url: location.href,
         normalizedUrl: normalizePageUrl(location.href),
         ownerId,
+        injectionSource,
       });
 
       const controller = new AbortController();
@@ -77,17 +104,17 @@ export default defineContentScript({
       }
 
       activeTracker = { controller, stop };
+      activeTrackedUrl = nextTrackedUrl;
     };
 
     // 响应 popup/options/background 发给当前 tab 的消息。
     // 入口层只做分发，具体索引、adapter context、阅读 UI 逻辑都在 src/content/* 模块里。
     const onRuntimeMessage = (message: RuntimeMessage) => {
-      if (message.type === 'CONTENT_SCRIPT_PING') return true;
       if (message.type === 'GET_PAGE_ADAPTER_CONTEXT') return getPageAdapterContext();
       if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
-      if (message.type === 'INDEX_PROGRESS_UPDATED') return startTracking('index-progress-updated');
+      if (message.type === 'INDEX_PROGRESS_UPDATED') return startTracking('index-progress-updated', { forceRefresh: true });
       if (message.type === 'SITE_SETTINGS_UPDATED' && message.siteId === currentSiteId()) {
-        if (message.settings.readingProgressEnabled) return startTracking('site-settings-enabled');
+        if (message.settings.readingProgressEnabled) return startTracking('site-settings-enabled', { forceRefresh: true });
         return stopTracking().then(removeProgressUi);
       }
       return undefined;

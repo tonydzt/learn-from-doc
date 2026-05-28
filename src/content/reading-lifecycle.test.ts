@@ -4,6 +4,7 @@ import {
   shouldContinueTracking,
   shouldFlushTrackingProgress,
   shouldStartReadingTracker,
+  shouldRestartTrackingForUrl,
   shouldStartTrackingOnVisibilityChange,
   shouldUsePrefetchedSiteSettings,
 } from './reading-lifecycle';
@@ -19,6 +20,24 @@ describe('reading tracker lifecycle', () => {
 
   it('does not start tracking when a tab becomes hidden', () => {
     expect(shouldStartTrackingOnVisibilityChange('hidden', false)).toBe(false);
+  });
+
+  it('does not restart tracking for anchor-only route changes on the same page', () => {
+    expect(shouldRestartTrackingForUrl({
+      activeTrackedUrl: 'https://fastapi.tiangolo.com/tutorial/body/',
+      forceRefresh: false,
+      hasActiveTracker: true,
+      nextTrackedUrl: 'https://fastapi.tiangolo.com/tutorial/body/',
+    })).toBe(false);
+  });
+
+  it('restarts tracking on the same page when a refresh is explicitly requested', () => {
+    expect(shouldRestartTrackingForUrl({
+      activeTrackedUrl: 'https://fastapi.tiangolo.com/tutorial/body/',
+      forceRefresh: true,
+      hasActiveTracker: true,
+      nextTrackedUrl: 'https://fastapi.tiangolo.com/tutorial/body/',
+    })).toBe(true);
   });
 
   it('starts tracking when site reading progress is enabled or missing', () => {

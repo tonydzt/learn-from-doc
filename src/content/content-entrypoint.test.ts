@@ -21,6 +21,7 @@ vi.mock('./indexing', () => ({
 }));
 vi.mock('./reading-lifecycle', () => ({
   claimReadingTrackerOwner: vi.fn(),
+  shouldRestartTrackingForUrl: vi.fn(() => true),
   shouldStartTrackingOnVisibilityChange: vi.fn(() => false),
 }));
 vi.mock('./reading-tracker', () => ({
@@ -66,5 +67,32 @@ describe('content script lifecycle', () => {
     invalidate?.();
 
     expect(browser.runtime.onMessage.removeListener).toHaveBeenCalledWith(listener);
+  });
+
+  it('does not restart tracking when location changes within the same normalized page', async () => {
+    const { hasOriginPermissionFromBackground } = await import('./runtime-client');
+    const { shouldRestartTrackingForUrl } = await import('./reading-lifecycle');
+    const { runReadingTracker } = await import('./reading-tracker');
+    vi.mocked(hasOriginPermissionFromBackground).mockResolvedValue(true);
+    vi.mocked(runReadingTracker).mockResolvedValue(vi.fn());
+    vi.mocked(shouldRestartTrackingForUrl)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+
+    const { default: contentScript } = await import('../../entrypoints/content');
+    const ctx = {
+      addEventListener: vi.fn(),
+      onInvalidated: vi.fn(),
+    };
+
+    await contentScript.main(ctx as never);
+    const locationChange = vi.mocked(ctx.addEventListener).mock.calls
+      .find(([target, event]) => target === window && event === 'wxt:locationchange')?.[2] as (() => void) | undefined;
+    expect(locationChange).toBeDefined();
+
+    locationChange?.();
+    await Promise.resolve();
+
+    expect(runReadingTracker).toHaveBeenCalledTimes(1);
   });
 });

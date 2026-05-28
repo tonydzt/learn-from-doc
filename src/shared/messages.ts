@@ -76,7 +76,6 @@ export type IndexOverview = {
 };
 
 export type RuntimeMessage =
-  | { type: 'CONTENT_SCRIPT_PING' }
   | { type: 'GET_PAGE_ADAPTER_CONTEXT' }
   | { type: 'HAS_ORIGIN_PERMISSION'; origin: string }
   | { type: 'GET_INDEXED_SCOPE_FOR_URL'; url: string }

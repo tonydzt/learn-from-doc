@@ -8,6 +8,7 @@ import { cachedDetectedFrameworkContextForUrl, saveDetectedFrameworkContext } fr
 import { probePageAdapterContext } from '../../src/popup/framework-probe';
 import { prepareIndexStart } from '../../src/popup/index-start';
 import { DEFAULT_LANGUAGE, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
+import { INJECTION_SOURCE_ATTR } from '../../src/shared/constants';
 import type { IndexCheckpointSummary, PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
 import { siteIdFor } from '../../src/shared/url';
 import type { SiteRecord } from '../../src/storage/db';
@@ -39,10 +40,21 @@ function fmt(value: number | undefined): string {
   return `${Math.round(value ?? 0)}%`;
 }
 
-async function injectContentScript(tabId: number): Promise<void> {
+async function markContentScriptInjectionSource(tabId: number, source: string): Promise<void> {
+  await browser.scripting.executeScript({
+    target: { tabId },
+    func: (attributeName, injectionSource) => {
+      document.documentElement.setAttribute(attributeName, injectionSource);
+    },
+    args: [INJECTION_SOURCE_ATTR, source],
+  });
+}
+
+async function injectContentScript(tabId: number, source: string): Promise<void> {
   const file = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
   if (!file) throw new Error('Content script file not found.');
   const scriptFile = file as NonNullable<Parameters<typeof browser.scripting.executeScript>[0]['files']>[number];
+  await markContentScriptInjectionSource(tabId, source);
   await browser.scripting.executeScript({
     target: { tabId },
     files: [scriptFile],
@@ -68,7 +80,7 @@ async function probeContextFromTab(tabId: number): Promise<PageAdapterContext> {
 }
 
 async function injectContentScriptForDetectedPage(tabId: number, fallback: PageAdapterContext): Promise<PageAdapterContext> {
-  await injectContentScript(tabId);
+  await injectContentScript(tabId, 'popup:detect-framework');
   try {
     const context = await browser.tabs.sendMessage(tabId, { type: 'GET_PAGE_ADAPTER_CONTEXT' } satisfies RuntimeMessage) as PageAdapterContext;
     return context.supported ? context : fallback;
@@ -79,7 +91,7 @@ async function injectContentScriptForDetectedPage(tabId: number, fallback: PageA
 
 async function contextFromInjectedContentScript(tabId: number): Promise<PageAdapterContext | null> {
   try {
-    await injectContentScript(tabId);
+    await injectContentScript(tabId, 'popup:cached-framework-context');
     return contextFromExistingContentScript(tabId);
   } catch {
     return null;

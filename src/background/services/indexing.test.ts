@@ -119,7 +119,7 @@ describe('background indexing service', () => {
         ...loadingTab,
         status: 'complete',
       });
-      await vi.waitFor(() => expect(injectContentScript).toHaveBeenCalledWith(41));
+      await vi.waitFor(() => expect(injectContentScript).toHaveBeenCalledWith(41, 'background:indexing-measurement'));
     }
 
     context.pendingMeasurements.get(41)?.resolve({

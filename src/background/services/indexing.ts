@@ -168,7 +168,7 @@ async function measurePage(
         });
         await waitForIndexingTab(tab.id, indexingUrl);
       }
-      await injectContentScript(tab.id);
+      await injectContentScript(tab.id, 'background:indexing-measurement');
     } catch (error) {
       // 注入失败时立即拒绝等待中的测量 Promise，避免悬挂到超时。
       rejectPendingMeasurement(context, tab.id, error);

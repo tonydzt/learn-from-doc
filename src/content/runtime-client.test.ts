@@ -8,7 +8,6 @@ import {
   getSiteSettingsFromBackground,
   hasOriginPermissionFromBackground,
   saveProgressToBackground,
-  sendRuntimeMessage,
 } from './runtime-client';
 
 vi.mock('wxt/browser', () => ({
@@ -56,19 +55,17 @@ describe('content runtime client', () => {
     });
   });
 
-  it('sends progress writes and exposes the generic sender for internal modules', async () => {
+  it('sends progress writes', async () => {
     vi.mocked(browser.runtime.sendMessage).mockResolvedValue({ ok: true });
 
     await saveProgressToBackground('react.dev::learn', 'https://react.dev/learn', [{ start: 0, end: 100 }], 500);
-    await sendRuntimeMessage({ type: 'CONTENT_SCRIPT_PING' });
 
-    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(1, {
+    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({
       type: 'SAVE_PROGRESS_RECORD',
       siteId: 'react.dev::learn',
       url: 'https://react.dev/learn',
       ranges: [{ start: 0, end: 100 }],
       contentHeight: 500,
     });
-    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(2, { type: 'CONTENT_SCRIPT_PING' });
   });
 });
