@@ -4,11 +4,11 @@ import { browser } from 'wxt/browser';
 import { t } from '../../src/i18n/messages';
 import { totalProgressPercent } from '../../src/progress/calculations';
 import { detectionResultState, initialDetectionState } from '../../src/popup/detection';
+import { cachedDetectedFrameworkContextForUrl, saveDetectedFrameworkContext } from '../../src/popup/framework-detection-cache';
 import { probePageAdapterContext } from '../../src/popup/framework-probe';
-import { shouldRequestPersistentOriginPermission } from '../../src/popup/permissions';
+import { prepareIndexStart } from '../../src/popup/index-start';
 import { DEFAULT_LANGUAGE, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
 import type { PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
-import { originPermissionPatternForUrl } from '../../src/shared/origin-permissions';
 import { siteIdFor } from '../../src/shared/url';
 import type { SiteRecord } from '../../src/storage/db';
 import './style.css';
@@ -76,6 +76,15 @@ async function injectContentScriptForDetectedPage(tabId: number, fallback: PageA
   }
 }
 
+async function contextFromInjectedContentScript(tabId: number): Promise<PageAdapterContext | null> {
+  try {
+    await injectContentScript(tabId);
+    return contextFromExistingContentScript(tabId);
+  } catch {
+    return null;
+  }
+}
+
 function contextFromIndexedSite(site: SiteRecord): Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext {
   return {
     supported: true,
@@ -85,16 +94,6 @@ function contextFromIndexedSite(site: SiteRecord): Required<Pick<PageAdapterCont
     adapterKind: 'framework',
     indexable: true,
   };
-}
-
-async function ensurePersistentOriginPermission(url: string | undefined, adapterKind: PageAdapterContext['adapterKind']): Promise<void> {
-  if (!shouldRequestPersistentOriginPermission({ url, adapterKind })) return;
-  const originPattern = originPermissionPatternForUrl(url);
-  if (!originPattern) return;
-  const alreadyGranted = await browser.permissions.contains({ origins: [originPattern] });
-  if (alreadyGranted) return;
-  const granted = await browser.permissions.request({ origins: [originPattern] });
-  if (!granted) throw new Error('Origin permission is required to index and auto-enable this documentation site.');
 }
 
 function ProgressRing({ value }: { value: number }) {
@@ -184,6 +183,18 @@ function App() {
         }
       }
 
+      if (initial.status === 'needs-manual-detect' && tab.url) {
+        const cachedContext = await cachedDetectedFrameworkContextForUrl(tab.url);
+        if (cachedContext?.host && cachedContext.scopeKey && cachedContext.scopeTitle) {
+          const pageContext = await contextFromInjectedContentScript(tab.id);
+          const restoredContext = pageContext?.supported && pageContext.host && pageContext.scopeKey && pageContext.scopeTitle
+            ? pageContext
+            : cachedContext;
+          await loadSupportedContext(restoredContext as Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext, indexRunProgressPromise, settingsPromise);
+          return;
+        }
+      }
+
       if (initial.status !== 'needs-manual-detect') {
         const [indexRunProgress, settings] = await Promise.all([indexRunProgressPromise, settingsPromise]);
         restoreIndexProgress(indexRunProgress);
@@ -229,7 +240,12 @@ function App() {
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (tab.id == null) throw new Error('No active tab found.');
       const context = state.status === 'ready' ? state.context : undefined;
-      await ensurePersistentOriginPermission(tab.url, context?.supported ? context.adapterKind : undefined);
+      const startMode = await prepareIndexStart({
+        tabId: tab.id,
+        url: tab.url,
+        adapterKind: context?.supported ? context.adapterKind : undefined,
+      });
+      if (startMode === 'background-resumes') return;
       const result = await browser.runtime.sendMessage({ type: 'START_INDEX', tabId: tab.id } satisfies RuntimeMessage) as StartIndexResult;
       if (!result.ok) throw new Error(result.error);
       await load();
@@ -261,6 +277,7 @@ function App() {
         return;
       }
       const pageContext = await injectContentScriptForDetectedPage(tab.id, detected.context);
+      await saveDetectedFrameworkContext(pageContext);
       await loadSupportedContext(
         pageContext as Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext,
         browser.runtime.sendMessage({ type: 'GET_INDEX_RUN_PROGRESS' } satisfies RuntimeMessage) as Promise<IndexRunProgress | null>,

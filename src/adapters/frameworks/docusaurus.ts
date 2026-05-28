@@ -2,7 +2,7 @@ import { createFrameworkAdapter } from './common';
 
 // Manual test sites:
 // - React Native Docs, https://reactnative.dev/docs/getting-started
-// - Jest, https://jestjs.io/docs/getting-started
+// - Jest, https://jestjs.io/docs/getting-started success
 // - WebdriverIO, https://webdriver.io/docs/gettingstarted/
 export const DocusaurusAdapter = createFrameworkAdapter({
   id: 'framework-docusaurus',

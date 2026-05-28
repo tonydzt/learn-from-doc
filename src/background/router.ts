@@ -42,6 +42,8 @@ export const handleRuntimeMessage = createMessageRouter({
   // popup
   GET_INDEX_RUN_PROGRESS: handlePopupMessages,
   START_INDEX: handlePopupMessages,
+  REGISTER_PENDING_INDEX_AFTER_PERMISSION: handlePopupMessages,
+  CLEAR_PENDING_INDEX_AFTER_PERMISSION: handlePopupMessages,
   // content script write/read
   HAS_ORIGIN_PERMISSION: handleContentMessages,
   GET_SITE_PAGES: handleContentMessages,

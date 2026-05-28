@@ -52,6 +52,13 @@ export type IndexRunProgressMessage = {
   };
 };
 
+export type PendingIndexAfterPermission = {
+  tabId: number;
+  url: string;
+  originPattern: string;
+  createdAt: number;
+};
+
 export type IndexOverview = {
   site: SiteRecord;
   pageCount: number;
@@ -68,6 +75,8 @@ export type RuntimeMessage =
   | { type: 'GET_INDEXED_SCOPE_FOR_URL'; url: string }
   | { type: 'COLLECT_INDEX_LINKS' }
   | { type: 'START_INDEX'; tabId: number }
+  | { type: 'REGISTER_PENDING_INDEX_AFTER_PERMISSION'; pending: PendingIndexAfterPermission }
+  | { type: 'CLEAR_PENDING_INDEX_AFTER_PERMISSION' }
   | { type: 'GET_INDEX_RUN_PROGRESS' }
   | { type: 'GET_INDEX_OVERVIEWS' }
   | { type: 'GET_SITE_SNAPSHOT'; siteId: string }
