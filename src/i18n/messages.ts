@@ -91,7 +91,10 @@ export type MessageKey =
   | 'popup.scanningSidebar'
   | 'popup.rebuildIndex'
   | 'popup.createIndex'
+  | 'popup.resumeIndex'
   | 'popup.indexingPages'
+  | 'popup.resumeIndexingPages'
+  | 'popup.resumeIndexHint'
   | 'content.docProgress'
   | 'content.subdirectory';
 
@@ -203,7 +206,10 @@ export const EN_MESSAGES: Messages = {
   'popup.scanningSidebar': 'Scanning sidebar',
   'popup.rebuildIndex': 'Rebuild index',
   'popup.createIndex': 'Create index',
+  'popup.resumeIndex': 'Resume index',
   'popup.indexingPages': 'Indexing pages...',
+  'popup.resumeIndexingPages': 'Resuming index...',
+  'popup.resumeIndexHint': 'Resume from {current}/{total} pages indexed before interruption.',
   'content.docProgress': 'Doc progress',
   'content.subdirectory': 'Subdirectory',
 };
@@ -298,7 +304,10 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'popup.scanningSidebar': '正在扫描侧边栏',
     'popup.rebuildIndex': '重建索引',
     'popup.createIndex': '创建索引',
+    'popup.resumeIndex': '继续创建索引',
     'popup.indexingPages': '正在索引页面...',
+    'popup.resumeIndexingPages': '正在继续创建索引...',
+    'popup.resumeIndexHint': '将从中断前已完成的 {current}/{total} 页继续。',
     'content.docProgress': '文档进度',
     'content.subdirectory': '子目录',
   },

@@ -18,6 +18,18 @@ export type PageIndexRecord = {
   contentHeight: number;
 };
 
+export type IndexCheckpointRecord = {
+  siteId: string;
+  host: string;
+  scopeKey: string;
+  scopeTitle: string;
+  links: Array<{ url: string; title: string }>;
+  pages: PageIndexRecord[];
+  requiresIndexingLoadWait: boolean;
+  updatedAt: number;
+  failedReason: 'indexing-error' | 'measurement-timeout';
+};
+
 export type ProgressRecord = {
   siteId: string;
   url: string;
@@ -30,4 +42,4 @@ export type SiteSettingsRecord = SiteSettings & {
   siteId: string;
 };
 
-export type StoreName = 'sites' | 'pages' | 'progress' | 'siteSettings';
+export type StoreName = 'sites' | 'pages' | 'progress' | 'siteSettings' | 'indexCheckpoints';

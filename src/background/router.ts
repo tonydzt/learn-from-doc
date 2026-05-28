@@ -41,6 +41,7 @@ export const handleRuntimeMessage = createMessageRouter({
   DELETE_SITE_INDEX: handleOptionsMessages,
   // popup
   GET_INDEX_RUN_PROGRESS: handlePopupMessages,
+  GET_INDEX_CHECKPOINT: handlePopupMessages,
   START_INDEX: handlePopupMessages,
   REGISTER_PENDING_INDEX_AFTER_PERMISSION: handlePopupMessages,
   CLEAR_PENDING_INDEX_AFTER_PERMISSION: handlePopupMessages,

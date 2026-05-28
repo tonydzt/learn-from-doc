@@ -1,7 +1,7 @@
 import type { StoreName } from './types';
 
 const DB_NAME = 'developer-docs-progress-tracker';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBDatabase> | undefined;
 
@@ -34,6 +34,10 @@ export function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('siteSettings')) {
         // siteSettings 保存站点级功能开关。它和 site 元数据分开，后续增加网站级配置时不污染索引记录。
         db.createObjectStore('siteSettings', { keyPath: 'siteId' });
+      }
+      if (!db.objectStoreNames.contains('indexCheckpoints')) {
+        // indexCheckpoints 保存索引超时后的临时断点；完整索引成功写入 pages 后会删除。
+        db.createObjectStore('indexCheckpoints', { keyPath: 'siteId' });
       }
     };
 

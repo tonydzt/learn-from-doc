@@ -8,7 +8,7 @@ import { cachedDetectedFrameworkContextForUrl, saveDetectedFrameworkContext } fr
 import { probePageAdapterContext } from '../../src/popup/framework-probe';
 import { prepareIndexStart } from '../../src/popup/index-start';
 import { DEFAULT_LANGUAGE, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
-import type { PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
+import type { IndexCheckpointSummary, PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
 import { siteIdFor } from '../../src/shared/url';
 import type { SiteRecord } from '../../src/storage/db';
 import './style.css';
@@ -25,6 +25,7 @@ type PopupContext = {
   detectionFailed?: boolean;
   totalPercent?: number;
   pageCount?: number;
+  indexCheckpoint?: IndexCheckpointSummary | null;
 };
 
 type LoadState =
@@ -128,8 +129,9 @@ function App() {
     settingsPromise: Promise<AppSettings>,
   ) => {
     const siteId = siteIdFor(pageContext.host, pageContext.scopeKey);
-    const [snapshot, indexRunProgress, settings] = await Promise.all([
+    const [snapshot, indexCheckpoint, indexRunProgress, settings] = await Promise.all([
       browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as Promise<SiteSnapshot | undefined>,
+      browser.runtime.sendMessage({ type: 'GET_INDEX_CHECKPOINT', siteId } satisfies RuntimeMessage) as Promise<IndexCheckpointSummary | null>,
       indexRunProgressPromise,
       settingsPromise,
     ]);
@@ -147,6 +149,7 @@ function App() {
         frameworkName: pageContext.frameworkName,
         totalPercent: snapshot ? totalProgressPercent(snapshot.pages, snapshot.progress) : 0,
         pageCount: snapshot?.pages.length ?? 0,
+        indexCheckpoint,
       },
     });
   }, [restoreIndexProgress]);
@@ -332,7 +335,8 @@ function App() {
 
   const { context } = state;
   const language = state.settings.language;
-  const actionLabel = context.indexed ? t(language, 'popup.rebuildIndex') : t(language, 'popup.createIndex');
+  const hasResumeCheckpoint = Boolean(context.indexCheckpoint && context.indexCheckpoint.current < context.indexCheckpoint.total);
+  const actionLabel = hasResumeCheckpoint ? t(language, 'popup.resumeIndex') : context.indexed ? t(language, 'popup.rebuildIndex') : t(language, 'popup.createIndex');
 
   return (
     <main className="shell">
@@ -385,10 +389,21 @@ function App() {
               </div>
               <p>{indexProgress.currentTitle ?? (indexProgress.phase === 'saving' ? t(language, 'popup.savingIndex') : t(language, 'popup.scanningSidebar'))}</p>
             </section>
+          ) : hasResumeCheckpoint && context.indexCheckpoint ? (
+            <section className="index-progress">
+              <div className="index-progress-row">
+                <span>{t(language, 'popup.resumeIndex')}</span>
+                <strong>{`${context.indexCheckpoint.current}/${context.indexCheckpoint.total}`}</strong>
+              </div>
+              <div className="bar">
+                <i style={{ width: `${(context.indexCheckpoint.current / context.indexCheckpoint.total) * 100}%` }} />
+              </div>
+              <p>{t(language, 'popup.resumeIndexHint', { current: context.indexCheckpoint.current, total: context.indexCheckpoint.total })}</p>
+            </section>
           ) : null}
 
           <button className="primary" type="button" onClick={() => void startIndex()} disabled={indexing}>
-            {indexing ? t(language, 'popup.indexingPages') : actionLabel}
+            {indexing ? (hasResumeCheckpoint ? t(language, 'popup.resumeIndexingPages') : t(language, 'popup.indexingPages')) : actionLabel}
           </button>
         </>
       )}

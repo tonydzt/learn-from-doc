@@ -4,8 +4,12 @@ import { lfdDebug } from '../../shared/logger';
 import type { IndexLinksResponse, IndexPageMeasuredMessage, RuntimeMessage, StartIndexResult } from '../../shared/messages';
 import { normalizePageUrl, siteIdFor, withIndexingHash } from '../../shared/url';
 import {
+  deleteIndexCheckpoint,
+  getIndexCheckpoint,
   getSite,
   replaceSitePages,
+  saveIndexCheckpoint,
+  type IndexCheckpointRecord,
   type PageIndexRecord,
   type SiteRecord,
 } from '../../storage/db';
@@ -14,6 +18,7 @@ import { isDebugIndexingLogsEnabled } from './settings';
 import { injectContentScript, sendTabMessage } from './tabs';
 
 const INDEX_TIMEOUT_MS = 30000;
+const MEASUREMENT_TIMEOUT_MESSAGE = 'Timed out while measuring page.';
 
 /**
  * 更新后台内存中的索引进度，并向popup页面广播最新进度消息。
@@ -55,11 +60,38 @@ function waitForMeasurement(
           timeoutMs: INDEX_TIMEOUT_MS,
         }));
       });
-      reject(new Error('Timed out while measuring page.'));
+      reject(new Error(MEASUREMENT_TIMEOUT_MESSAGE));
     }, INDEX_TIMEOUT_MS);
 
     context.pendingMeasurements.set(tabId, { url, startedAt, resolve, reject, timeout });
   });
+}
+
+function hasMatchingCheckpointLinks(
+  checkpoint: IndexCheckpointRecord,
+  links: IndexLinksResponse['links'],
+): boolean {
+  return checkpoint.links.length === links.length
+    && checkpoint.links.every((link, index) => link.url === links[index]?.url);
+}
+
+function checkpointForIndexRun(input: {
+  site: SiteRecord;
+  links: IndexLinksResponse['links'];
+  pages: PageIndexRecord[];
+  requiresIndexingLoadWait: boolean;
+}): IndexCheckpointRecord {
+  return {
+    siteId: input.site.siteId,
+    host: input.site.host,
+    scopeKey: input.site.scopeKey,
+    scopeTitle: input.site.scopeTitle,
+    links: input.links,
+    pages: input.pages,
+    requiresIndexingLoadWait: input.requiresIndexingLoadWait,
+    updatedAt: Date.now(),
+    failedReason: 'indexing-error',
+  };
 }
 
 /**
@@ -204,16 +236,22 @@ export async function startIndex(context: BackgroundContext, tabId: number): Pro
     updatedAt: now,
   };
 
-  const pages: PageIndexRecord[] = [];
+  const checkpoint = await getIndexCheckpoint(siteId);
+  const canResumeCheckpoint = checkpoint ? hasMatchingCheckpointLinks(checkpoint, indexLinks.links) : false;
+  if (checkpoint && !canResumeCheckpoint) await deleteIndexCheckpoint(siteId);
+
+  const pages: PageIndexRecord[] = canResumeCheckpoint ? [...checkpoint.pages] : [];
+  const requiresIndexingLoadWait = indexLinks.requiresIndexingLoadWait === true;
   await emitIndexProgress(context, {
     phase: 'measuring',
-    current: 0,
+    current: pages.length,
     total: indexLinks.links.length,
-    currentTitle: indexLinks.links[0]?.title,
-    currentUrl: indexLinks.links[0]?.url,
+    currentTitle: indexLinks.links[pages.length]?.title ?? indexLinks.links[0]?.title,
+    currentUrl: indexLinks.links[pages.length]?.url ?? indexLinks.links[0]?.url,
   });
-  for (const [order, link] of indexLinks.links.entries()) {
-    const measured = await measurePage(context, link.url, indexLinks.requiresIndexingLoadWait === true);
+  for (let order = pages.length; order < indexLinks.links.length; order += 1) {
+    const link = indexLinks.links[order];
+    const measured = await measurePage(context, link.url, requiresIndexingLoadWait);
     pages.push({
       siteId,
       url: normalizePageUrl(measured.payload.url),
@@ -221,6 +259,12 @@ export async function startIndex(context: BackgroundContext, tabId: number): Pro
       order,
       contentHeight: measured.payload.contentHeight,
     });
+    await saveIndexCheckpoint(checkpointForIndexRun({
+      site,
+      links: indexLinks.links,
+      pages,
+      requiresIndexingLoadWait,
+    }));
     await emitIndexProgress(context, {
       phase: 'measuring',
       current: pages.length,
@@ -237,6 +281,7 @@ export async function startIndex(context: BackgroundContext, tabId: number): Pro
     total: indexLinks.links.length,
   });
   await replaceSitePages(site, pages);
+  await deleteIndexCheckpoint(siteId);
   lfdDebug('index saved', {
     siteId,
     pageCount: pages.length,

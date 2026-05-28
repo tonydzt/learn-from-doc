@@ -52,6 +52,13 @@ export type IndexRunProgressMessage = {
   };
 };
 
+export type IndexCheckpointSummary = {
+  siteId: string;
+  current: number;
+  total: number;
+  updatedAt: number;
+};
+
 export type PendingIndexAfterPermission = {
   tabId: number;
   url: string;
@@ -75,6 +82,7 @@ export type RuntimeMessage =
   | { type: 'GET_INDEXED_SCOPE_FOR_URL'; url: string }
   | { type: 'COLLECT_INDEX_LINKS' }
   | { type: 'START_INDEX'; tabId: number }
+  | { type: 'GET_INDEX_CHECKPOINT'; siteId: string }
   | { type: 'REGISTER_PENDING_INDEX_AFTER_PERMISSION'; pending: PendingIndexAfterPermission }
   | { type: 'CLEAR_PENDING_INDEX_AFTER_PERMISSION' }
   | { type: 'GET_INDEX_RUN_PROGRESS' }

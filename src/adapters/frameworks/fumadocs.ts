@@ -1,9 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
 // Manual test sites:
-// - shadcn/ui Docs, https://ui.shadcn.com/docs
-// - Fumadocs, https://www.fumadocs.dev/docs/ui
-// - Flags SDK, https://flags-sdk.dev/docs/frameworks/next
+// - shadcn/ui Docs, https://ui.shadcn.com/docs ✅
+// - Fumadocs, https://www.fumadocs.dev/docs/ui ❌
+// - Flags SDK, https://flags-sdk.dev/docs/frameworks/next ✅
 export const FumadocsAdapter = createFrameworkAdapter({
   id: 'framework-fumadocs',
   frameworkName: 'Fumadocs',

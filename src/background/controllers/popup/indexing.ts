@@ -2,6 +2,7 @@ import { browser } from 'wxt/browser';
 import type { BackgroundHandler } from '../../types';
 import { startIndex } from '../../services/indexing';
 import { logIndexFailureToSourceTab } from '../../services/tabs';
+import { getIndexCheckpoint } from '../../../storage/db';
 import {
   clearPendingIndexAfterPermission,
   consumePendingIndexAfterPermission,
@@ -42,6 +43,16 @@ export function resumePendingIndexAfterPermission(context: BackgroundContext, ad
 
 export const handlePopupMessages: BackgroundHandler = async (message, _sender, context) => {
   if (message.type === 'GET_INDEX_RUN_PROGRESS') return context.indexRunProgress.get();
+
+  if (message.type === 'GET_INDEX_CHECKPOINT') {
+    const checkpoint = await getIndexCheckpoint(message.siteId);
+    return checkpoint ? {
+      siteId: checkpoint.siteId,
+      current: checkpoint.pages.length,
+      total: checkpoint.links.length,
+      updatedAt: checkpoint.updatedAt,
+    } : null;
+  }
 
   if (message.type === 'REGISTER_PENDING_INDEX_AFTER_PERMISSION') {
     await registerPendingIndexAfterPermission(message.pending);

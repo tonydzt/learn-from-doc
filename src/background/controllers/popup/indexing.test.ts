@@ -2,6 +2,7 @@ import { browser } from 'wxt/browser';
 import { createBackgroundContext } from '../../context';
 import type { RuntimeMessage } from '../../../shared/messages';
 import { startIndex } from '../../services/indexing';
+import { getIndexCheckpoint } from '../../../storage/db';
 import {
   clearPendingIndexAfterPermission,
   consumePendingIndexAfterPermission,
@@ -24,6 +25,9 @@ vi.mock('../../services/indexing', () => ({
 }));
 vi.mock('../../services/tabs', () => ({
   logIndexFailureToSourceTab: vi.fn(async () => undefined),
+}));
+vi.mock('../../../storage/db', () => ({
+  getIndexCheckpoint: vi.fn(async () => undefined),
 }));
 vi.mock('../../services/pending-index', () => ({
   clearPendingIndexAfterPermission: vi.fn(async () => undefined),
@@ -82,6 +86,39 @@ describe('popup indexing background controller', () => {
 
     expect(startIndex).toHaveBeenCalledWith(expect.anything(), 21);
     expect(registerPendingIndexAfterPermission).not.toHaveBeenCalled();
+  });
+
+  it('returns a saved index checkpoint summary for popup resume state', async () => {
+    vi.mocked(getIndexCheckpoint).mockResolvedValue({
+      siteId: 'ui.shadcn.com::docs',
+      host: 'ui.shadcn.com',
+      scopeKey: 'docs',
+      scopeTitle: 'shadcn/ui',
+      links: [
+        { url: 'https://ui.shadcn.com/docs', title: 'Docs' },
+        { url: 'https://ui.shadcn.com/docs/components/button', title: 'Button' },
+      ],
+      pages: [{
+        siteId: 'ui.shadcn.com::docs',
+        url: 'https://ui.shadcn.com/docs',
+        title: 'Docs',
+        order: 0,
+        contentHeight: 100,
+      }],
+      requiresIndexingLoadWait: false,
+      updatedAt: 1_234,
+      failedReason: 'measurement-timeout',
+    });
+
+    await expect(handlePopupMessages({
+      type: 'GET_INDEX_CHECKPOINT',
+      siteId: 'ui.shadcn.com::docs',
+    } as RuntimeMessage, {}, createBackgroundContext())).resolves.toEqual({
+      siteId: 'ui.shadcn.com::docs',
+      current: 1,
+      total: 2,
+      updatedAt: 1_234,
+    });
   });
 
   it('resumes a matching pending index after permission is granted', async () => {
