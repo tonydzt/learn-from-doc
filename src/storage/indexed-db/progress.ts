@@ -1,4 +1,5 @@
 import { mergeRanges, viewedHeight, type ViewedRange } from '../../progress/ranges';
+import { normalizePageUrl } from '../../shared/url';
 import { indexAll, tx } from './connection';
 import { getAllSites } from './sites';
 import type { ProgressRecord } from './types';
@@ -14,7 +15,7 @@ export async function saveProgress(siteId: string, url: string, ranges: ViewedRa
   // 用户反向滚动、重复看同一段，都不会重复计数。
   const record: ProgressRecord = {
     siteId,
-    url,
+    url: normalizePageUrl(url),
     viewedRanges: mergeRanges(ranges),
     viewedHeight: viewedHeight(ranges, contentHeight),
     updatedAt: Date.now(),

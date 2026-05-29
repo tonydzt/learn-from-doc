@@ -1,4 +1,5 @@
 import { normalizeSiteSettings } from '../../settings/site-settings';
+import { normalizePageUrl } from '../../shared/url';
 import type { PortableSiteBundle } from '../portable-data';
 import { tx } from './connection';
 import { getPages } from './pages';
@@ -10,6 +11,14 @@ export async function replacePortableSiteData(bundle: PortableSiteBundle): Promi
     getPages(bundle.site.siteId),
     bundle.progress ? getProgressForSite(bundle.site.siteId) : Promise.resolve([]),
   ]);
+  const pagesToStore = bundle.pages.map((page) => ({
+    ...page,
+    url: normalizePageUrl(page.url),
+  }));
+  const progressToStore = bundle.progress?.map((record) => ({
+    ...record,
+    url: normalizePageUrl(record.url),
+  }));
 
   await tx(['sites', 'pages', 'progress', 'siteSettings'], 'readwrite', async ({ sites, pages, progress, siteSettings }) => {
     sites.put(bundle.site);
@@ -18,11 +27,11 @@ export async function replacePortableSiteData(bundle: PortableSiteBundle): Promi
       ...normalizeSiteSettings(bundle.siteSettings),
     });
     existingPages.forEach((page) => pages.delete([bundle.site.siteId, page.url]));
-    bundle.pages.forEach((page) => pages.put(page));
+    pagesToStore.forEach((page) => pages.put(page));
 
-    if (bundle.progress) {
+    if (progressToStore) {
       existingProgress.forEach((record) => progress.delete([bundle.site.siteId, record.url]));
-      bundle.progress.forEach((record) => progress.put(record));
+      progressToStore.forEach((record) => progress.put(record));
     }
   });
 }

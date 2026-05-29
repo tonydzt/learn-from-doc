@@ -4,6 +4,7 @@ export function normalizePageUrl(input: string): string {
   const url = new URL(input);
   url.hash = '';
   url.searchParams.sort();
+  if (url.pathname !== '/') url.pathname = url.pathname.replace(/\/+$/, '');
   return url.toString();
 }
 
