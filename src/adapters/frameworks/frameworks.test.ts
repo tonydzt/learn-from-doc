@@ -99,6 +99,10 @@ const cases = [
 ];
 
 describe('framework adapters', () => {
+  afterEach(() => {
+    jsdom.reconfigure({ url: 'https://react.dev/learn' });
+  });
+
   for (const item of cases) {
     it(`detects ${item.frameworkName} and exposes index targets`, () => {
       history.replaceState(null, '', item.url);
@@ -355,6 +359,23 @@ describe('framework adapters', () => {
 
     expect(targets?.sidebarRoot).toBe(document.querySelector('.sidebar-content'));
     expect(targets?.totalProgressBefore).toBe(document.querySelector('.sidebar-content h2'));
+  });
+
+  it('waits for Netlify Starlight pages to load before measuring indexing height', () => {
+    jsdom.reconfigure({ url: 'https://docs.netlify.com/deploy/deploy-overview/' });
+    document.body.innerHTML = `
+      <nav class="sidebar" aria-label="Main">
+        <a href="/deploy/deploy-overview/">Deploy overview</a>
+      </nav>
+      <main><div class="sl-markdown-content">Starlight article</div></main>
+      <meta name="generator" content="Astro v5">
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-starlight');
+
+    expect(adapter?.requiresIndexingLoadWait).toBe(true);
+
+    jsdom.reconfigure({ url: 'https://example.com/deploy/deploy-overview/' });
+    expect(adapter?.requiresIndexingLoadWait).toBeUndefined();
   });
 
   it('uses a visible duplicate sidebar link as the progress insertion target', () => {
