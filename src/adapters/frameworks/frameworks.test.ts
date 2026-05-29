@@ -1,4 +1,5 @@
 import { FrameworkAdapters } from '.';
+import { createFrameworkAdapter } from './common';
 
 const cases = [
   {
@@ -197,7 +198,7 @@ describe('framework adapters', () => {
     ]);
   });
 
-  it('collects Fumadocs child pages from Next flight data when collapsed sidebar groups are empty', () => {
+  it('collects Fumadocs child pages from Next flight data only for configured sites', () => {
     history.replaceState(null, '', 'https://react.dev/docs/ui');
     document.body.innerHTML = `
       <aside id="nd-sidebar" data-fumadocs-sidebar class="[grid-area:sidebar]">
@@ -218,13 +219,72 @@ describe('framework adapters', () => {
         self.__next_f.push([1, "{\\"type\\":\\"page\\",\\"name\\":\\"Auto Type Table\\",\\"description\\":\\"Auto-generated type table\\",\\"url\\":\\"/docs/ui/components/auto-type-table\\"},{\\"type\\":\\"page\\",\\"name\\":\\"Root Guide\\",\\"url\\":\\"/docs/what-is-fumadocs\\"}"]);
       </script>
     `;
-    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-fumadocs');
+    const adapter = createFrameworkAdapter({
+      id: 'framework-test-fumadocs',
+      frameworkName: 'Fumadocs',
+      sidebarSelectors: ['[data-fumadocs-sidebar]'],
+      articleSelectors: ['main article'],
+      signatureSelectors: ['[data-fumadocs-sidebar]'],
+      siteOverrides: [
+        {
+          host: 'react.dev',
+          pathPrefix: '/docs/ui',
+          includeNextFlightPageLinks: true,
+        },
+      ],
+    });
 
     expect(adapter?.getSidebarLinks().map((link) => [link.url, link.title])).toContainEqual([
       'https://react.dev/docs/ui/components/auto-type-table',
       'Auto Type Table',
     ]);
     expect(adapter?.getSidebarLinks().map((link) => link.url)).not.toContain('https://react.dev/docs/what-is-fumadocs');
+  });
+
+  it('does not collect Fumadocs Next flight links for other Fumadocs-compatible sites', () => {
+    history.replaceState(null, '', 'https://react.dev/docs/other');
+    document.body.innerHTML = `
+      <aside id="nd-sidebar" data-fumadocs-sidebar class="[grid-area:sidebar]">
+        <a href="/docs/other">Overview</a>
+      </aside>
+      <main><article>Fumadocs article</article></main>
+      <script>
+        self.__next_f.push([1, "{\\"type\\":\\"page\\",\\"name\\":\\"Nested Page\\",\\"url\\":\\"/docs/other/nested\\"}"]);
+      </script>
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-fumadocs');
+
+    expect(adapter?.getSidebarLinks().map((link) => link.url)).toEqual([
+      'https://react.dev/docs/other',
+    ]);
+  });
+
+  it('allows configured sites to override framework indexing load wait', () => {
+    const adapter = createFrameworkAdapter({
+      id: 'framework-test',
+      frameworkName: 'Test Docs',
+      requiresIndexingLoadWait: true,
+      sidebarSelectors: ['nav'],
+      articleSelectors: ['article'],
+      signatureSelectors: ['nav'],
+      siteOverrides: [
+        {
+          host: 'react.dev',
+          pathPrefix: '/fast',
+          requiresIndexingLoadWait: false,
+        },
+      ],
+    });
+    document.body.innerHTML = `
+      <nav><a href="/docs">Docs</a></nav>
+      <article>Test article</article>
+    `;
+
+    history.replaceState(null, '', 'https://react.dev/slow');
+    expect(adapter.requiresIndexingLoadWait).toBe(true);
+
+    history.replaceState(null, '', 'https://react.dev/fast');
+    expect(adapter.requiresIndexingLoadWait).toBe(false);
   });
 
   it('treats Retype navigation containing the home page as one root scope', () => {

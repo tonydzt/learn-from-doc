@@ -10,9 +10,18 @@ type FrameworkAdapterConfig = {
   expandableSelectors?: string[];
   progressRootSelectors?: string[];
   includeNextFlightPageLinks?: boolean;
-  requiresHydrationWait?: boolean;
+  requiresIndexingLoadWait?: boolean;
+  siteOverrides?: FrameworkSiteOverride[];
+};
+
+type FrameworkSiteOverride = {
+  host: string;
+  pathPrefix?: string;
+  includeNextFlightPageLinks?: boolean;
   requiresIndexingLoadWait?: boolean;
 };
+
+type EffectiveFrameworkConfig = Pick<FrameworkAdapterConfig, 'includeNextFlightPageLinks' | 'requiresIndexingLoadWait'>;
 
 function firstElement<T extends Element>(selectors: string[], root: ParentNode = document): T | null {
   for (const selector of selectors) {
@@ -66,6 +75,19 @@ function shouldExpandControl(control: HTMLElement): boolean {
 
 function pathSegments(pathname: string): string[] {
   return pathname.split('/').filter(Boolean);
+}
+
+function normalizePathPrefix(pathPrefix: string): string {
+  if (pathPrefix === '/') return '/';
+  return pathPrefix.endsWith('/') ? pathPrefix.slice(0, -1) : pathPrefix;
+}
+
+function pathMatchesPrefix(pathname: string, pathPrefix?: string): boolean {
+  if (!pathPrefix) return true;
+  const normalized = normalizePathPrefix(pathPrefix);
+  return normalized === '/'
+    || pathname === normalized
+    || pathname.startsWith(`${normalized}/`);
 }
 
 /**
@@ -169,6 +191,15 @@ function nextFlightPageLinks(prefix: string): SidebarLink[] {
 }
 
 export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteAdapter {
+  const effectiveConfig = (url = new URL(location.href)): EffectiveFrameworkConfig => {
+    const override = config.siteOverrides?.find((item) => (
+      item.host === url.hostname && pathMatchesPrefix(url.pathname, item.pathPrefix)
+    ));
+    return {
+      includeNextFlightPageLinks: override?.includeNextFlightPageLinks ?? config.includeNextFlightPageLinks,
+      requiresIndexingLoadWait: override?.requiresIndexingLoadWait ?? config.requiresIndexingLoadWait,
+    };
+  };
   const sidebarRoot = () => firstElement(config.sidebarSelectors);
   const articleRoot = () => firstElement<HTMLElement>(config.articleSelectors);
   const hasSignature = () => config.signatureSelectors.some((selector) => Boolean(document.querySelector(selector)));
@@ -188,8 +219,9 @@ export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteA
     id: config.id,
     kind: 'framework',
     frameworkName: config.frameworkName,
-    requiresHydrationWait: config.requiresHydrationWait,
-    requiresIndexingLoadWait: config.requiresIndexingLoadWait,
+    get requiresIndexingLoadWait() {
+      return effectiveConfig().requiresIndexingLoadWait;
+    },
 
     matches() {
       return Boolean(detect());
@@ -259,7 +291,7 @@ export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteA
         }));
       }
 
-      if (config.includeNextFlightPageLinks) {
+      if (effectiveConfig().includeNextFlightPageLinks) {
         // 先收集 DOM 侧栏链接，再合并序列化出来的页面链接。
         // 这样完整渲染导航的框架仍然按原来的 DOM 侧栏工作；
         // 对显式开启该能力的 adapter，则可以补上懒加载/折叠导航漏掉的页面。

@@ -36,6 +36,11 @@ export const FumadocsAdapter = createFrameworkAdapter({
     'button[aria-expanded="false"]',
     '[data-state="closed"] button',
   ],
-  // TODO: 这个参数其实更应该是网站级别的，而不是框架级别的，目前先放在这，后面再优化
-  includeNextFlightPageLinks: true,
+  siteOverrides: [
+    {
+      host: 'www.fumadocs.dev',
+      pathPrefix: '/docs/ui',
+      includeNextFlightPageLinks: true,
+    },
+  ],
 });

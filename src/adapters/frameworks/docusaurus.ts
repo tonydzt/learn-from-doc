@@ -7,7 +7,6 @@ import { createFrameworkAdapter } from './common';
 export const DocusaurusAdapter = createFrameworkAdapter({
   id: 'framework-docusaurus',
   frameworkName: 'Docusaurus',
-  requiresHydrationWait: true,
   sidebarSelectors: [
     'nav[aria-label="Docs sidebar"]',
     'aside nav.menu',
