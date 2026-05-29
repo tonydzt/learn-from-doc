@@ -42,23 +42,26 @@ function rangesChanged(current: ViewedRange[], next: ViewedRange[]): boolean {
 
 export async function runReadingTracker(signal: AbortSignal, ownerId: string): Promise<ReadingTrackerStop | undefined> {
   const trackedUrl = normalizePageUrl(location.href);
+  const ownerRoot = document.documentElement;
+  const scrollDocument = document;
+  const pageLocation = window.location;
 
   // 内容脚本可能因为 SPA 路由切换、重新注入等原因同时存在多个 tracker。
   // 这里每次继续执行前都确认两件事：当前实例仍是 owner，并且页面 URL 仍是启动时的 URL。
   const canContinue = () => shouldContinueTracking({
-    isActiveOwner: isReadingTrackerOwner(document.documentElement, ownerId),
+    isActiveOwner: isReadingTrackerOwner(ownerRoot, ownerId),
     trackedUrl,
-    currentUrl: normalizePageUrl(location.href),
+    currentUrl: normalizePageUrl(pageLocation.href),
   });
 
   // 普通 flush 要求 tracker 还没被 abort，且 URL 没变；最终清理 flush 放宽 URL/abort 限制，
   // 只要仍是 owner 就尽量把最后一段阅读进度写回 background。
   const canFlush = (isFinalFlush: boolean) => shouldFlushTrackingProgress({
-    isActiveOwner: isReadingTrackerOwner(document.documentElement, ownerId),
+    isActiveOwner: isReadingTrackerOwner(ownerRoot, ownerId),
     isFinalFlush,
     isSignalAborted: signal.aborted,
     trackedUrl,
-    currentUrl: normalizePageUrl(location.href),
+    currentUrl: normalizePageUrl(pageLocation.href),
   });
 
   // 水合前先尝试用 URL 可确定的 scope 预取设置；依赖 DOM 识别的 adapter（框架adapter） 此时可能还拿不到 scope。
@@ -73,7 +76,7 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
   // 水合后重新识别，scope 和 article 是真正启动 tracker 时采用的页面结果。
   const adapter = getAdapterForPage(location.href);
   const scope = adapter?.getDocScope();
-  const article = adapter?.getArticleRoot();
+  let article = adapter?.getArticleRoot();
   lfdDebug('reading tracker boot', {
     url: location.href,
     normalizedUrl: normalizePageUrl(location.href),
@@ -147,6 +150,67 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
     initialRanges: ranges,
   });
 
+// ------------- start: 这一段是用来优化某些页面，加载时通过content script获取到正文的articel dom节点，但是水合之后，这个articel dom节点会被替换掉，但是tracker持有的还是老的dom，导致阅读进度记录失效 -----------------
+  // 这个函数值用来在打日志时，计算日志相关的字段值
+  // 日志里保留旧/新正文节点的尺寸，方便判断是 DOM 被替换还是节点临时变成 0x0。
+  const articleRectSnapshot = (element: HTMLElement | null) => {
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    };
+  };
+
+  // 某些文档站水合后会替换正文 DOM；旧节点可能还被 tracker 缓存着，但已经断开或没有布局尺寸。
+  const isUsableArticle = (element: HTMLElement | null): element is HTMLElement => {
+    if (!element?.isConnected) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+
+  let scrollTargets = new Set<EventTarget>();
+  const removeScrollListeners = () => {
+    scrollTargets.forEach((target) => {
+      target.removeEventListener('scroll', sample, target === scrollDocument);
+    });
+    scrollTargets = new Set();
+  };
+  const bindScrollListeners = (root: HTMLElement) => {
+    removeScrollListeners();
+    // article 变了以后，可滚动祖先也可能变；先清旧监听，再按当前正文节点重绑。
+    scrollTargets = new Set<EventTarget>([window, scrollDocument, ...scrollableAncestors(root)]);
+    scrollTargets.forEach((target) => {
+      target.addEventListener('scroll', sample, { passive: true, capture: target === scrollDocument });
+    });
+  };
+
+  const currentArticle = (reason: 'render' | 'sample' | 'mutation'): HTMLElement | null => {
+    if (isUsableArticle(article)) return article;
+
+    // 使用前发现正文节点失效时，重新通过 adapter 定位。这样滚动采样不会继续拿 0x0 旧节点算进度。
+    const previous = article;
+    const next = adapter.getArticleRoot();
+    lfdDebug('reading tracker article root refreshed', {
+      siteId,
+      url: page.url,
+      reason,
+      previousConnected: previous?.isConnected ?? false,
+      previousRect: articleRectSnapshot(previous),
+      nextFound: Boolean(next),
+      nextRect: articleRectSnapshot(next),
+    });
+    article = next;
+    if (article) bindScrollListeners(article);
+    return article;
+  };
+
+// ------------- end: 上面这一段是用来优化某些页面，加载时通过content script获取到正文的articel dom节点，但是水合之后，这个articel dom节点会被替换掉，但是tracker持有的还是老的dom，导致阅读进度记录失效 -----------------
+
   // 插入阅读进度 UI函数
   const renderUi = () => renderProgressUi(siteId, settings.language, uiSnapshot);
 
@@ -165,7 +229,8 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
 
     // 顶部/侧边的总体进度 UI 依赖 uiSnapshot；阅读地图还需要当前视口在正文里的位置。
     await renderUi();
-    renderReadingMapIfEnabled(visibleRange(article));
+    const root = currentArticle('render');
+    renderReadingMapIfEnabled(root ? visibleRange(root) : null);
   };
   const scheduleRenderUi = () => {
     if (signal.aborted || !canContinue() || renderTimer) return;
@@ -182,16 +247,17 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
 
     // 把当前 viewport 与正文区域的交集转换成“已读区间”。如果已经滚到文章底部，
     // completeRangeAtPageEnd 会把末尾误差补齐，避免最后几像素永远算未读。
-    const visible = visibleRange(article);
+    const root = currentArticle('sample');
+    const visible = root ? visibleRange(root) : null;
     const range = visible
-      ? completeRangeAtPageEnd(visible, isArticleScrolledToEnd(article), page.contentHeight)
+      ? completeRangeAtPageEnd(visible, isArticleScrolledToEnd(root), page.contentHeight)
       : null;
 
     // 正文完全不在视口里时不记录进度，但仍同步阅读地图，让当前视口高亮消失。
     if (!range) {
       renderReadingMapIfEnabled(null);
       lfdTrace('reading sample skipped: article outside viewport', {
-        articleRect: article.getBoundingClientRect().toJSON?.() ?? null,
+        articleRect: articleRectSnapshot(root),
       });
       return;
     }
@@ -262,10 +328,7 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
   await renderPageChrome();
 
   // 文档站可能有内层滚动容器，所以除了 window/document，也监听正文的可滚动祖先。
-  const scrollTargets = new Set<EventTarget>([window, document, ...scrollableAncestors(article)]);
-  scrollTargets.forEach((target) => {
-    target.addEventListener('scroll', sample, { passive: true, capture: target === document, signal });
-  });
+  bindScrollListeners(article);
   window.addEventListener('resize', sample, { passive: true, signal });
   const flushInterval = globalThis.setInterval(() => void flush(), FLUSH_INTERVAL_MS);
   document.addEventListener('visibilitychange', () => {
@@ -283,19 +346,24 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
   };
   browser.storage.onChanged.addListener(onSettingsChanged);
 
-  // 正文或页面导航发生 DOM 变化时，重新渲染进度 UI；采样仍由滚动/resize 负责。
-  const observer = new MutationObserver(scheduleRenderUi);
+  // 正文或页面导航发生 DOM 变化时，先检查正文节点是否被替换，再重新渲染进度 UI。
+  // 如果这里没捕获到，后续 render/sample 调用 currentArticle 时仍会兜底刷新。
+  const observer = new MutationObserver(() => {
+    currentArticle('mutation');
+    scheduleRenderUi();
+  });
   observer.observe(document.body, { childList: true, subtree: true });
 
   return async () => {
     // stop 函数负责清掉本函数手动注册的资源；带 signal 的事件监听会随 abort 自动移除。
     globalThis.clearInterval(flushInterval);
     if (renderTimer) globalThis.clearTimeout(renderTimer);
+    removeScrollListeners();
     observer.disconnect();
     browser.storage.onChanged.removeListener(onSettingsChanged);
 
     // 如果 owner 已经换成新 tracker，旧 tracker 不再 flush/移除 UI，避免误删新实例的界面。
-    if (!isReadingTrackerOwner(document.documentElement, ownerId)) return;
+    if (!isReadingTrackerOwner(ownerRoot, ownerId)) return;
     await flush(false, true);
     removeProgressUi();
   };
