@@ -12,6 +12,7 @@ const saveProgress = vi.fn(async (siteId: string, url: string, ranges: Array<{ s
   viewedHeight: ranges.reduce((sum, range) => sum + Math.max(0, Math.min(range.end, contentHeight) - Math.min(range.start, contentHeight)), 0),
   updatedAt: 1,
 }));
+let adapterRequiresStableInitialArticle = false;
 
 vi.mock('wxt/browser', () => ({
   browser: {
@@ -26,6 +27,9 @@ vi.mock('wxt/browser', () => ({
 
 vi.mock('../adapters', () => ({
   getAdapterForPage: vi.fn(() => ({
+    get requiresStableInitialArticle() {
+      return adapterRequiresStableInitialArticle;
+    },
     getDocScope: () => ({
       host: 'fastapi.tiangolo.com',
       scopeKey: 'root',
@@ -101,6 +105,8 @@ function setBox(
 describe('reading tracker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
+    adapterRequiresStableInitialArticle = false;
     document.body.innerHTML = '';
     window.history.replaceState(null, '', '/deployment/concepts/');
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 });
@@ -146,6 +152,47 @@ describe('reading tracker', () => {
       'fastapi.tiangolo.com::root',
       'https://fastapi.tiangolo.com/deployment/concepts/',
       expect.arrayContaining([{ start: 600, end: 1100 }]),
+      2000,
+    );
+  });
+
+  it('discards guarded initial progress when the article root is replaced during startup', async () => {
+    vi.useFakeTimers();
+    adapterRequiresStableInitialArticle = true;
+
+    const oldArticle = document.createElement('article');
+    setBox(oldArticle, { top: -3164, bottom: 1000, scrollHeight: 4164 });
+    document.body.append(oldArticle);
+
+    const newArticle = document.createElement('article');
+    setBox(newArticle, { top: 166, bottom: 1400, scrollHeight: 2000 });
+
+    getArticleRoot.mockReturnValueOnce(oldArticle).mockReturnValue(newArticle);
+    claimReadingTrackerOwner(document.documentElement, 'owner');
+
+    const runPromise = runReadingTracker(new AbortController().signal, 'owner');
+    for (let index = 0; index < 10; index += 1) {
+      await Promise.resolve();
+    }
+
+    oldArticle.remove();
+    document.body.append(newArticle);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+
+    const stop = await runPromise;
+    await stop?.();
+
+    expect(saveProgress).toHaveBeenCalledWith(
+      'fastapi.tiangolo.com::root',
+      'https://fastapi.tiangolo.com/deployment/concepts/',
+      [{ start: 0, end: 334 }],
+      2000,
+    );
+    expect(saveProgress).not.toHaveBeenCalledWith(
+      'fastapi.tiangolo.com::root',
+      'https://fastapi.tiangolo.com/deployment/concepts/',
+      expect.arrayContaining([{ start: 3164, end: 3664 }]),
       2000,
     );
   });

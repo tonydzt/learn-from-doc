@@ -40,6 +40,8 @@ function rangesChanged(current: ViewedRange[], next: ViewedRange[]): boolean {
   return current.some((range, index) => range.start !== next[index]?.start || range.end !== next[index]?.end);
 }
 
+const INITIAL_ARTICLE_STABILITY_MS = 350;
+
 export async function runReadingTracker(signal: AbortSignal, ownerId: string): Promise<ReadingTrackerStop | undefined> {
   const trackedUrl = normalizePageUrl(location.href);
   const ownerRoot = document.documentElement;
@@ -291,6 +293,66 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
     renderReadingMapIfEnabled(range);
   };
 
+// ------------- start: 这一段是用来优化某些Material for MkDocs框架的网站，开启了instant navigation，路由切换时URL可能已经变成新页面，但旧正文 DOM 还没被替换，导致采样时把旧页面的阅读进度带到了新页面的问题 -----------------
+
+  // 对显式开启 requiresStableInitialArticle 的站点，首次采样后短暂观察正文节点。
+  // 如果这段时间内正文被替换，说明首次采样可能读到了上一页的正文，调用方需要丢弃这次采样。
+  const waitForInitialArticleReplacement = (sampledArticle: HTMLElement): Promise<boolean> => {
+    if (!adapter.requiresStableInitialArticle) return Promise.resolve(false);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+
+      const done = (wasReplaced: boolean) => {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        if (timer) globalThis.clearTimeout(timer);
+        resolve(wasReplaced);
+      };
+
+      const check = () => {
+        if (signal.aborted || !canContinue()) {
+          done(false);
+          return;
+        }
+        const next = adapter.getArticleRoot();
+        if (next && next !== sampledArticle && isUsableArticle(next)) {
+          article = next;
+          bindScrollListeners(article);
+          done(true);
+          return;
+        }
+        if (!isUsableArticle(sampledArticle)) {
+          currentArticle('mutation');
+          done(true);
+        }
+      };
+
+      const observer = new MutationObserver(check);
+      observer.observe(document.body, { childList: true, subtree: true });
+      timer = globalThis.setTimeout(() => done(false), INITIAL_ARTICLE_STABILITY_MS);
+      check();
+    });
+  };
+
+  // 回滚首次采样造成的内存状态。
+  // 只用于“首次采样后发现正文被替换”的场景，避免把旧页面可见区间写入当前页面进度。
+  const restoreProgressSnapshot = (initialRanges: ViewedRange[], initialProgress: ProgressUiSnapshot['progress'][number] | undefined) => {
+    ranges = initialRanges;
+    dirty = false;
+    uiSnapshot = {
+      pages: uiSnapshot.pages,
+      progress: [
+        ...uiSnapshot.progress.filter((entry) => entry.url !== page.url),
+        ...(initialProgress ? [initialProgress] : []),
+      ],
+    };
+  };
+
+// ------------- end: 这一段是用来优化某些Material for MkDocs框架的网站，开启了instant navigation，路由切换时URL可能已经变成新页面，但旧正文 DOM 还没被替换，导致采样时把旧页面的阅读进度带到了新页面的问题 -----------------
+
   const flush = async (render = true, isFinalFlush = false) => {
     if (!canFlush(isFinalFlush)) return;
 
@@ -321,7 +383,14 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
   };
 
   // 启动时先采样一次并立即保存，处理“页面打开时正文已经在视口中”的情况。
+  const initialArticle = currentArticle('sample');
+  const initialRanges = ranges;
+  const initialProgress = uiSnapshot.progress.find((entry) => entry.url === page.url);
   sample();
+  if (initialArticle && await waitForInitialArticleReplacement(initialArticle)) {
+    restoreProgressSnapshot(initialRanges, initialProgress);
+    sample();
+  }
   await flush();
   if (signal.aborted || !canContinue()) return undefined;
 

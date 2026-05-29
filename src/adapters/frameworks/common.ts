@@ -11,6 +11,7 @@ type FrameworkAdapterConfig = {
   progressRootSelectors?: string[];
   includeNextFlightPageLinks?: boolean;
   requiresIndexingLoadWait?: boolean;
+  requiresStableInitialArticle?: boolean;
   siteOverrides?: FrameworkSiteOverride[];
 };
 
@@ -19,9 +20,13 @@ type FrameworkSiteOverride = {
   pathPrefix?: string;
   includeNextFlightPageLinks?: boolean;
   requiresIndexingLoadWait?: boolean;
+  requiresStableInitialArticle?: boolean;
 };
 
-type EffectiveFrameworkConfig = Pick<FrameworkAdapterConfig, 'includeNextFlightPageLinks' | 'requiresIndexingLoadWait'>;
+type EffectiveFrameworkConfig = Pick<
+  FrameworkAdapterConfig,
+  'includeNextFlightPageLinks' | 'requiresIndexingLoadWait' | 'requiresStableInitialArticle'
+>;
 
 function firstElement<T extends Element>(selectors: string[], root: ParentNode = document): T | null {
   for (const selector of selectors) {
@@ -198,6 +203,7 @@ export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteA
     return {
       includeNextFlightPageLinks: override?.includeNextFlightPageLinks ?? config.includeNextFlightPageLinks,
       requiresIndexingLoadWait: override?.requiresIndexingLoadWait ?? config.requiresIndexingLoadWait,
+      requiresStableInitialArticle: override?.requiresStableInitialArticle ?? config.requiresStableInitialArticle,
     };
   };
   const sidebarRoot = () => firstElement(config.sidebarSelectors);
@@ -221,6 +227,9 @@ export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteA
     frameworkName: config.frameworkName,
     get requiresIndexingLoadWait() {
       return effectiveConfig().requiresIndexingLoadWait;
+    },
+    get requiresStableInitialArticle() {
+      return effectiveConfig().requiresStableInitialArticle;
     },
 
     matches() {

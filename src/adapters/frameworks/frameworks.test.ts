@@ -128,6 +128,24 @@ describe('framework adapters', () => {
     expect(adapter?.detect?.()).toBeNull();
   });
 
+  it('enables stable initial article only for Typer Material MkDocs pages', () => {
+    document.body.innerHTML = `
+      <div class="md-sidebar md-sidebar--primary">
+        <nav class="md-nav">
+          <a class="md-nav__link" href="/tutorial/">Tutorial</a>
+        </nav>
+      </div>
+      <main class="md-main"><article class="md-content__inner">Material article</article></main>
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-material-mkdocs');
+
+    jsdom.reconfigure({ url: 'https://typer.tiangolo.com/tutorial/' });
+    expect(adapter?.requiresStableInitialArticle).toBe(true);
+
+    jsdom.reconfigure({ url: 'https://fastapi.tiangolo.com/tutorial/' });
+    expect(adapter?.requiresStableInitialArticle).toBeUndefined();
+  });
+
   it('detects the current Nextra docs DOM', () => {
     history.replaceState(null, '', 'https://react.dev/docs');
     document.body.innerHTML = `

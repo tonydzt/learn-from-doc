@@ -32,6 +32,7 @@ export type DocSiteAdapter = {
   kind?: 'site' | 'framework';
   frameworkName?: string;
   requiresIndexingLoadWait?: boolean;
+  requiresStableInitialArticle?: boolean;
   // Adapter 是“站点专用解析器”：核心逻辑不猜 DOM 结构，只问当前站点 adapter 去哪里找导航和正文。
   matches(url: URL): boolean;
   detect?(): FrameworkDetection | null;
