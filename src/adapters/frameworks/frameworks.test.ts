@@ -197,6 +197,36 @@ describe('framework adapters', () => {
     ]);
   });
 
+  it('collects Fumadocs child pages from Next flight data when collapsed sidebar groups are empty', () => {
+    history.replaceState(null, '', 'https://react.dev/docs/ui');
+    document.body.innerHTML = `
+      <aside id="nd-sidebar" data-fumadocs-sidebar class="[grid-area:sidebar]">
+        <a href="/">Fumadocs</a>
+        <a href="/docs/ui">Overview</a>
+        <a href="/docs/ui/component-library">Component Library</a>
+        <div data-state="closed">
+          <a href="/docs/ui/components">Components</a>
+          <div data-state="closed" hidden></div>
+        </div>
+        <div data-state="closed">
+          <a href="/docs/ui/layouts">Layouts</a>
+          <div data-state="closed" hidden></div>
+        </div>
+      </aside>
+      <main><article>Fumadocs article</article></main>
+      <script>
+        self.__next_f.push([1, "{\\"type\\":\\"page\\",\\"name\\":\\"Auto Type Table\\",\\"description\\":\\"Auto-generated type table\\",\\"url\\":\\"/docs/ui/components/auto-type-table\\"},{\\"type\\":\\"page\\",\\"name\\":\\"Root Guide\\",\\"url\\":\\"/docs/what-is-fumadocs\\"}"]);
+      </script>
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-fumadocs');
+
+    expect(adapter?.getSidebarLinks().map((link) => [link.url, link.title])).toContainEqual([
+      'https://react.dev/docs/ui/components/auto-type-table',
+      'Auto Type Table',
+    ]);
+    expect(adapter?.getSidebarLinks().map((link) => link.url)).not.toContain('https://react.dev/docs/what-is-fumadocs');
+  });
+
   it('treats Retype navigation containing the home page as one root scope', () => {
     history.replaceState(null, '', 'https://react.dev/usage/');
     document.body.innerHTML = `

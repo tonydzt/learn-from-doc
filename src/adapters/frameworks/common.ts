@@ -9,6 +9,7 @@ type FrameworkAdapterConfig = {
   signatureSelectors: string[];
   expandableSelectors?: string[];
   progressRootSelectors?: string[];
+  includeNextFlightPageLinks?: boolean;
   requiresHydrationWait?: boolean;
   requiresIndexingLoadWait?: boolean;
 };
@@ -67,6 +68,11 @@ function pathSegments(pathname: string): string[] {
   return pathname.split('/').filter(Boolean);
 }
 
+/**
+ * 返回这些 path 的路径段级公共前缀，用于推断当前文档树范围。
+ * 例：["/docs/ui", "/docs/ui/components"] => "/docs/ui"
+ * 例：["/docs/ui", "/docs/usage"] => "/docs"，不会返回字符串前缀 "/docs/u"。
+ */
 function commonPathPrefix(paths: string[]): string {
   if (paths.length === 0) return '';
   const split = paths.map(pathSegments);
@@ -79,6 +85,19 @@ function commonPathPrefix(paths: string[]): string {
   return prefix.length > 0 ? `/${prefix.join('/')}` : '';
 }
 
+/**
+ * 从侧栏同域链接推断当前文档树前缀。
+ * 例：/docs/ui、/docs/ui/components、/docs/ui/layouts => /docs/ui。
+ * 用于过滤 Next flight 中的链接，避免混入 /docs/headless 等其他文档树。
+ */
+function visibleSidebarPathPrefix(root: Element, host: string): string {
+  const paths = Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]'))
+    .map((anchor) => new URL(anchor.href, location.href))
+    .filter((url) => url.hostname === host && url.pathname !== '/')
+    .map((url) => url.pathname);
+  return commonPathPrefix(paths);
+}
+
 function scopeKeyFromSidebar(root: Element, host: string): string {
   const paths = Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]'))
     .map((anchor) => new URL(anchor.href, location.href))
@@ -87,6 +106,66 @@ function scopeKeyFromSidebar(root: Element, host: string): string {
   if (paths.includes('/')) return 'root';
   const prefix = commonPathPrefix(paths);
   return pathSegments(prefix)[0] ?? pathSegments(location.pathname)[0] ?? 'root';
+}
+
+function decodeJsonStringValue(value: string): string {
+  // Next flight 数据是以“转义后的 JSON 片段”形式塞在 script 文本里的，
+  // 所以正则捕获到的值里可能还会有 `\u0026`、`\"` 这类转义。
+  // 把捕获值临时包成一个 JSON 字符串交给 JSON.parse，
+  // 可以复用浏览器/运行时自带的转义解析逻辑，避免为了这点数据写完整 flight parser。
+  // 如果某个值格式异常，就保留原始捕获结果，不因为标题解析失败而丢掉链接。
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * 从 Next flight 中补充 DOM 侧栏未渲染的当前文档树链接。
+ * 例：prefix=/docs/ui，保留 /docs/ui/components/auto-type-table，过滤 /docs/headless/page-tree。
+ * 仅提取 page 的 name/url，并用隐藏 anchor 兼容后续 SidebarLink 逻辑。
+ */
+function nextFlightPageLinks(prefix: string): SidebarLink[] {
+  if (!prefix) return [];
+  const byUrl = new Map<string, SidebarLink>();
+  // Next.js 版本的 Fumadocs 会把文档源树序列化进 self.__next_f 脚本片段。
+  // DOM 侧栏可能要等用户进入某个折叠目录后才渲染子链接，
+  // 但这些页面记录其实已经在 flight 数据里了。
+  // 这里不解析整个 flight 协议，只匹配我们需要的最小结构：页面标题和 URL。
+  const pagePattern = /\\"type\\":\\"page\\",\\"name\\":\\"([^\\"]+)\\"[\s\S]*?\\"url\\":\\"([^\\"]+)\\"/g;
+
+  for (const script of Array.from(document.scripts)) {
+    let match: RegExpExecArray | null;
+    while ((match = pagePattern.exec(script.textContent ?? ''))) {
+      const title = decodeJsonStringValue(match[1] ?? '');
+      const path = decodeJsonStringValue(match[2] ?? '');
+      // 同一个 host 的 flight 数据里可能包含多棵文档树。
+      // 只保留当前可见侧栏范围内的页面，避免重建 `/docs/ui` 索引时，
+      // 意外混入 `/docs/guides`、`/docs` 或其他兄弟产品的页面。
+      if (path !== prefix && !path.startsWith(`${prefix}/`)) continue;
+
+      const url = new URL(path, location.href);
+      if (url.hostname !== location.hostname || url.protocol !== 'https:') continue;
+      const normalized = normalizePageUrl(url.toString());
+      // 进度 UI 的插入逻辑要求每个 SidebarLink 都带一个 anchor 元素。
+      // 从 flight 数据里发现的链接，在当前页面上不一定有真实可见的 a 标签，
+      // 所以这里创建一个隐藏的占位 anchor。
+      // 如果同一个 URL 已经有真实 DOM anchor，betterSidebarLink 会保留真实可见的那个，
+      // 因为可见链接的优先级更高。
+      const element = document.createElement('a');
+      element.href = normalized;
+      element.hidden = true;
+      element.textContent = title;
+      byUrl.set(normalized, {
+        url: normalized,
+        title: title || normalized,
+        element,
+      });
+    }
+  }
+
+  return [...byUrl.values()];
 }
 
 export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteAdapter {
@@ -178,6 +257,15 @@ export function createFrameworkAdapter(config: FrameworkAdapterConfig): DocSiteA
           title: linkTitle(element),
           element,
         }));
+      }
+
+      if (config.includeNextFlightPageLinks) {
+        // 先收集 DOM 侧栏链接，再合并序列化出来的页面链接。
+        // 这样完整渲染导航的框架仍然按原来的 DOM 侧栏工作；
+        // 对显式开启该能力的 adapter，则可以补上懒加载/折叠导航漏掉的页面。
+        for (const link of nextFlightPageLinks(visibleSidebarPathPrefix(root, location.hostname))) {
+          byUrl.set(link.url, betterSidebarLink(byUrl.get(link.url), link));
+        }
       }
 
       return [...byUrl.values()];

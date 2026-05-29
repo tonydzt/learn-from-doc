@@ -2,7 +2,7 @@ import { createFrameworkAdapter } from './common';
 
 // Manual test sites:
 // - shadcn/ui Docs, https://ui.shadcn.com/docs ✅
-// - Fumadocs, https://www.fumadocs.dev/docs/ui ❌
+// - Fumadocs, https://www.fumadocs.dev/docs/ui ✅
 // - Flags SDK, https://flags-sdk.dev/docs/frameworks/next ✅
 export const FumadocsAdapter = createFrameworkAdapter({
   id: 'framework-fumadocs',
@@ -36,4 +36,6 @@ export const FumadocsAdapter = createFrameworkAdapter({
     'button[aria-expanded="false"]',
     '[data-state="closed"] button',
   ],
+  // TODO: 这个参数其实更应该是网站级别的，而不是框架级别的，目前先放在这，后面再优化
+  includeNextFlightPageLinks: true,
 });
