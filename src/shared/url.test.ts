@@ -3,6 +3,7 @@ import { isIndexingUrl, normalizePageUrl, withIndexingHash } from './url';
 describe('indexing url helpers', () => {
   it('normalizes page urls to stable storage keys', () => {
     expect(normalizePageUrl('https://webdriver.io/docs/why-webdriverio/#overview')).toBe('https://webdriver.io/docs/why-webdriverio');
+    expect(normalizePageUrl('https://vitest.dev/guide/learn/writing-tests.html')).toBe('https://vitest.dev/guide/learn/writing-tests');
     expect(normalizePageUrl('https://webdriver.io/?b=2&a=1#top')).toBe('https://webdriver.io/?a=1&b=2');
   });
 
