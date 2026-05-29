@@ -1,9 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
 // Manual test sites:
-// - Nextra Docs, https://nextra.site/docs
-// - Docs Demo App, https://docs-demo-app.vercel.app/
-// - React Flow, https://reactflow.dev/learn
+// - Nextra Docs, https://nextra.site/docs ✅
+// - Docs Demo App, https://docs-demo-app.vercel.app/ ✅
+// - React Flow, https://reactflow.dev/learn ✅
 export const NextraAdapter = createFrameworkAdapter({
   id: 'framework-nextra',
   frameworkName: 'Nextra',

@@ -1,9 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
 // Manual test sites:
-// - Pydantic Docs, https://docs.pydantic.dev/latest/ ❌ 跳到某些目录时，有概率发生阅读进度没渲染出来的问题，猜测有可能还是渲染时序的问题
-// - FastAPI, https://fastapi.tiangolo.com/
-// - Typer, https://typer.tiangolo.com/
+// - Pydantic Docs, https://docs.pydantic.dev/latest/ ✅
+// - FastAPI, https://fastapi.tiangolo.com/ ❌ 
+// - Typer, https://typer.tiangolo.com/ ❌
 export const MaterialMkDocsAdapter = createFrameworkAdapter({
   id: 'framework-material-mkdocs',
   frameworkName: 'Material for MkDocs',
