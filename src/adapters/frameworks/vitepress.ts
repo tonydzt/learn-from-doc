@@ -2,7 +2,7 @@ import { createFrameworkAdapter } from './common';
 
 // Manual test sites:
 // - Vite Docs, https://vite.dev/guide/ ✅
-// - VitePress, https://vitepress.dev/guide/getting-started ✅
+// - VitePress, https://vitepress.dev/guide/getting-started ✅ 总进度被遮挡了
 // - Vitest, https://vitest.dev/guide/ ✅ 很多页面没加入索引
 export const VitePressAdapter = createFrameworkAdapter({
   id: 'framework-vitepress',

@@ -1,6 +1,4 @@
 import {
-  claimReadingTrackerOwner,
-  isReadingTrackerOwner,
   shouldContinueTracking,
   shouldFlushTrackingProgress,
   shouldStartReadingTracker,
@@ -55,37 +53,26 @@ describe('reading tracker lifecycle', () => {
     expect(shouldUsePrefetchedSiteSettings(undefined, 'react.dev::learn')).toBe(false);
   });
 
-  it('lets the latest content script owner invalidate older owners', () => {
-    const root = document.createElement('html');
-    claimReadingTrackerOwner(root, 'first');
-    expect(isReadingTrackerOwner(root, 'first')).toBe(true);
-
-    claimReadingTrackerOwner(root, 'second');
-    expect(isReadingTrackerOwner(root, 'first')).toBe(false);
-    expect(isReadingTrackerOwner(root, 'second')).toBe(true);
-  });
-
-  it('continues tracking only for the active owner on the same url', () => {
+  it('continues tracking only while active on the same url', () => {
     expect(shouldContinueTracking({
-      isActiveOwner: true,
+      isSignalAborted: false,
       trackedUrl: 'https://ui.shadcn.com/docs/cli',
       currentUrl: 'https://ui.shadcn.com/docs/cli',
     })).toBe(true);
     expect(shouldContinueTracking({
-      isActiveOwner: false,
+      isSignalAborted: true,
       trackedUrl: 'https://ui.shadcn.com/docs/cli',
       currentUrl: 'https://ui.shadcn.com/docs/cli',
     })).toBe(false);
     expect(shouldContinueTracking({
-      isActiveOwner: true,
+      isSignalAborted: false,
       trackedUrl: 'https://ui.shadcn.com/docs/cli',
       currentUrl: 'https://ui.shadcn.com/docs/components/button',
     })).toBe(false);
   });
 
-  it('allows final flush for the active owner after route changes or aborts', () => {
+  it('allows final flush after route changes or aborts', () => {
     expect(shouldFlushTrackingProgress({
-      isActiveOwner: true,
       isFinalFlush: true,
       isSignalAborted: true,
       trackedUrl: 'https://reactnative.dev/docs/view',
@@ -93,20 +80,18 @@ describe('reading tracker lifecycle', () => {
     })).toBe(true);
   });
 
-  it('blocks live flush after route changes and all flushes from stale owners', () => {
+  it('blocks live flush after route changes or aborts', () => {
     expect(shouldFlushTrackingProgress({
-      isActiveOwner: true,
       isFinalFlush: false,
       isSignalAborted: false,
       trackedUrl: 'https://reactnative.dev/docs/view',
       currentUrl: 'https://reactnative.dev/docs/text',
     })).toBe(false);
     expect(shouldFlushTrackingProgress({
-      isActiveOwner: false,
-      isFinalFlush: true,
+      isFinalFlush: false,
       isSignalAborted: true,
       trackedUrl: 'https://reactnative.dev/docs/view',
-      currentUrl: 'https://reactnative.dev/docs/text',
+      currentUrl: 'https://reactnative.dev/docs/view',
     })).toBe(false);
   });
 });

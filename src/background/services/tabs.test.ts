@@ -1,21 +1,22 @@
 import { browser } from 'wxt/browser';
 import { maybeInjectIndexedTab } from './tabs';
 import { getAllSites } from '../../storage/db';
+import { injectContentScript } from '../../shared/content-script-injection';
 
 vi.mock('wxt/browser', () => ({
   browser: {
-    runtime: {
-      getManifest: vi.fn(() => ({
-        content_scripts: [{ js: ['content-scripts/content.js'] }],
-      })),
-    },
     permissions: {
       contains: vi.fn(async () => true),
     },
-    scripting: {
-      executeScript: vi.fn(async () => undefined),
+    tabs: {
+      sendMessage: vi.fn(),
+      query: vi.fn(async () => []),
     },
   },
+}));
+
+vi.mock('../../shared/content-script-injection', () => ({
+  injectContentScript: vi.fn(async () => undefined),
 }));
 
 vi.mock('../../storage/db', () => ({
@@ -29,55 +30,50 @@ vi.mock('../../storage/db', () => ({
   }]),
 }));
 
-function contentScriptInjectionCount(): number {
-  return vi.mocked(browser.scripting.executeScript).mock.calls
-    .filter(([details]) => details.files?.includes('content-scripts/content.js'))
-    .length;
-}
-
 describe('background tab content script injection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(browser.permissions.contains).mockResolvedValue(true);
   });
 
-  it('injects an indexed tab only once for repeated updates on the same normalized URL', async () => {
+  it('injects an indexed tab when the matching origin permission is granted', async () => {
     const url = 'https://pydantic.dev/docs/validation/latest/examples/files/';
 
     await maybeInjectIndexedTab(7, url, 'background:onUpdated');
-    await maybeInjectIndexedTab(7, url, 'background:onUpdated');
 
-    expect(contentScriptInjectionCount()).toBe(1);
+    expect(browser.permissions.contains).toHaveBeenCalledWith({ origins: ['https://pydantic.dev/*'] });
+    expect(injectContentScript).toHaveBeenCalledWith(7, 'background:onUpdated');
   });
 
-  it('treats hash-only changes as the same already injected document', async () => {
-    const tabId = 8;
-    const url = 'https://pydantic.dev/docs/validation/latest/examples/files/';
+  it('does not inject when the tab id is missing', async () => {
+    await maybeInjectIndexedTab(undefined, 'https://pydantic.dev/docs/validation/latest/examples/files/');
 
-    await maybeInjectIndexedTab(tabId, url, 'background:onUpdated');
-    await maybeInjectIndexedTab(tabId, `${url}#section`, 'background:onUpdated');
-
-    expect(contentScriptInjectionCount()).toBe(1);
+    expect(injectContentScript).not.toHaveBeenCalled();
   });
 
-  it('can inject the same tab again after it navigates to a different indexed page', async () => {
-    const tabId = 9;
+  it('does not inject when the url is missing', async () => {
+    await maybeInjectIndexedTab(7, undefined);
 
-    await maybeInjectIndexedTab(tabId, 'https://pydantic.dev/docs/validation/latest/examples/files/', 'background:onUpdated');
-    await maybeInjectIndexedTab(tabId, 'https://pydantic.dev/docs/validation/latest/examples/custom/', 'background:onUpdated');
-
-    expect(contentScriptInjectionCount()).toBe(2);
+    expect(injectContentScript).not.toHaveBeenCalled();
   });
 
-  it('coalesces concurrent auto-injection checks for the same tab and URL', async () => {
-    const tabId = 10;
-    const url = 'https://pydantic.dev/docs/validation/latest/examples/files/';
+  it('does not inject when the url is outside indexed scopes', async () => {
+    await maybeInjectIndexedTab(7, 'https://example.com/docs/');
 
-    await Promise.all([
-      maybeInjectIndexedTab(tabId, url, 'background:onUpdated'),
-      maybeInjectIndexedTab(tabId, url, 'background:onActivated'),
-    ]);
+    expect(injectContentScript).not.toHaveBeenCalled();
+  });
 
-    expect(contentScriptInjectionCount()).toBe(1);
+  it('does not inject without the matching origin permission', async () => {
+    vi.mocked(browser.permissions.contains).mockResolvedValue(false);
+
+    await maybeInjectIndexedTab(7, 'https://pydantic.dev/docs/validation/latest/examples/files/');
+
+    expect(injectContentScript).not.toHaveBeenCalled();
+  });
+
+  it('uses the latest indexed site list when checking the url', async () => {
+    await maybeInjectIndexedTab(7, 'https://pydantic.dev/docs/validation/latest/examples/files/');
+
+    expect(getAllSites).toHaveBeenCalledTimes(1);
   });
 });

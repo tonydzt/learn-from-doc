@@ -8,7 +8,6 @@ import { FLUSH_INTERVAL_MS } from '../shared/constants';
 import { lfdDebug, lfdTrace } from '../shared/logger';
 import { normalizePageUrl, siteIdFor } from '../shared/url';
 import {
-  isReadingTrackerOwner,
   shouldContinueTracking,
   shouldFlushTrackingProgress,
   shouldStartReadingTracker,
@@ -33,7 +32,7 @@ import {
 } from './runtime-client';
 import { isSubdirectoryPage } from '../progress/calculations';
 
-export type ReadingTrackerStop = () => Promise<void>;
+export type ReadingTrackerStop = (options?: { removeUi?: boolean }) => Promise<void>;
 
 function rangesChanged(current: ViewedRange[], next: ViewedRange[]): boolean {
   if (current.length !== next.length) return true;
@@ -42,24 +41,21 @@ function rangesChanged(current: ViewedRange[], next: ViewedRange[]): boolean {
 
 const INITIAL_ARTICLE_STABILITY_MS = 350;
 
-export async function runReadingTracker(signal: AbortSignal, ownerId: string): Promise<ReadingTrackerStop | undefined> {
+export async function runReadingTracker(signal: AbortSignal): Promise<ReadingTrackerStop | undefined> {
   const trackedUrl = normalizePageUrl(location.href);
-  const ownerRoot = document.documentElement;
   const scrollDocument = document;
   const pageLocation = window.location;
 
-  // 内容脚本可能因为 SPA 路由切换、重新注入等原因同时存在多个 tracker。
-  // 这里每次继续执行前都确认两件事：当前实例仍是 owner，并且页面 URL 仍是启动时的 URL。
+  // tracker 只在启动时的 normalized URL 上继续运行；SPA 切换或 abort 后停止普通采样/保存。
   const canContinue = () => shouldContinueTracking({
-    isActiveOwner: isReadingTrackerOwner(ownerRoot, ownerId),
+    isSignalAborted: signal.aborted,
     trackedUrl,
     currentUrl: normalizePageUrl(pageLocation.href),
   });
 
   // 普通 flush 要求 tracker 还没被 abort，且 URL 没变；最终清理 flush 放宽 URL/abort 限制，
-  // 只要仍是 owner 就尽量把最后一段阅读进度写回 background。
+  // 尽量把最后一段阅读进度写回 background。
   const canFlush = (isFinalFlush: boolean) => shouldFlushTrackingProgress({
-    isActiveOwner: isReadingTrackerOwner(ownerRoot, ownerId),
     isFinalFlush,
     isSignalAborted: signal.aborted,
     trackedUrl,
@@ -423,7 +419,7 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  return async () => {
+  return async (options: { removeUi?: boolean } = {}) => {
     // stop 函数负责清掉本函数手动注册的资源；带 signal 的事件监听会随 abort 自动移除。
     globalThis.clearInterval(flushInterval);
     if (renderTimer) globalThis.clearTimeout(renderTimer);
@@ -431,9 +427,7 @@ export async function runReadingTracker(signal: AbortSignal, ownerId: string): P
     observer.disconnect();
     browser.storage.onChanged.removeListener(onSettingsChanged);
 
-    // 如果 owner 已经换成新 tracker，旧 tracker 不再 flush/移除 UI，避免误删新实例的界面。
-    if (!isReadingTrackerOwner(ownerRoot, ownerId)) return;
     await flush(false, true);
-    removeProgressUi();
+    if (options.removeUi !== false) removeProgressUi();
   };
 }

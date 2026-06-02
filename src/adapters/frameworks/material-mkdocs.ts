@@ -1,7 +1,7 @@
 import { createFrameworkAdapter } from './common';
 
 // Manual test sites:
-// - Pydantic Docs, https://docs.pydantic.dev/latest/ ✅
+// 这个组件里的网站，点击还是有闪烁现象
 // - FastAPI, https://fastapi.tiangolo.com/ ✅
 // - Typer, https://typer.tiangolo.com/ ✅
 export const MaterialMkDocsAdapter = createFrameworkAdapter({

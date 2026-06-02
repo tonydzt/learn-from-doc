@@ -1,6 +1,6 @@
 import { runReadingTracker } from './reading-tracker';
-import { claimReadingTrackerOwner } from './reading-lifecycle';
 import { lfdDebug } from '../shared/logger';
+import { removeProgressUi } from './progress-ui';
 
 const getArticleRoot = vi.fn<() => HTMLElement | null>();
 const renderReadingMap = vi.fn();
@@ -127,9 +127,7 @@ describe('reading tracker', () => {
     newScroller.append(newArticle);
 
     getArticleRoot.mockReturnValueOnce(oldArticle).mockReturnValue(newArticle);
-    claimReadingTrackerOwner(document.documentElement, 'owner');
-
-    const stop = await runReadingTracker(new AbortController().signal, 'owner');
+    const stop = await runReadingTracker(new AbortController().signal);
     expect(stop).toBeDefined();
     saveProgress.mockClear();
 
@@ -168,9 +166,7 @@ describe('reading tracker', () => {
     setBox(newArticle, { top: 166, bottom: 1400, scrollHeight: 2000 });
 
     getArticleRoot.mockReturnValueOnce(oldArticle).mockReturnValue(newArticle);
-    claimReadingTrackerOwner(document.documentElement, 'owner');
-
-    const runPromise = runReadingTracker(new AbortController().signal, 'owner');
+    const runPromise = runReadingTracker(new AbortController().signal);
     for (let index = 0; index < 10; index += 1) {
       await Promise.resolve();
     }
@@ -195,5 +191,44 @@ describe('reading tracker', () => {
       expect.arrayContaining([{ start: 3164, end: 3664 }]),
       2000,
     );
+  });
+
+  it('flushes dirty progress on stop even after abort and route change', async () => {
+    const article = document.createElement('article');
+    setBox(article, { top: 0, bottom: 2000, scrollHeight: 2000 });
+    document.body.append(article);
+    getArticleRoot.mockReturnValue(article);
+
+    const controller = new AbortController();
+    const stop = await runReadingTracker(controller.signal);
+    expect(stop).toBeDefined();
+    saveProgress.mockClear();
+
+    setBox(article, { top: -600, bottom: 1400, scrollHeight: 2000 });
+    window.dispatchEvent(new window.Event('scroll'));
+    window.history.replaceState(null, '', '/deployment/other/');
+    controller.abort();
+    await stop?.();
+
+    expect(saveProgress).toHaveBeenCalledWith(
+      'fastapi.tiangolo.com::root',
+      'https://fastapi.tiangolo.com/deployment/concepts/',
+      expect.arrayContaining([{ start: 600, end: 1100 }]),
+      2000,
+    );
+  });
+
+  it('can stop for SPA navigation without removing progress UI', async () => {
+    const article = document.createElement('article');
+    setBox(article, { top: 0, bottom: 2000, scrollHeight: 2000 });
+    document.body.append(article);
+    getArticleRoot.mockReturnValue(article);
+
+    const stop = await runReadingTracker(new AbortController().signal);
+    expect(stop).toBeDefined();
+
+    await stop?.({ removeUi: false });
+
+    expect(removeProgressUi).not.toHaveBeenCalled();
   });
 });
