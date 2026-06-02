@@ -379,6 +379,29 @@ describe('framework adapters', () => {
     expect(targets?.totalProgressBefore).toBe(document.querySelector('.sidebar-content h2'));
   });
 
+  it('inserts VitePress total progress inside sidebar nav below its curtain overlay', () => {
+    jsdom.reconfigure({ url: 'https://vitepress.dev/guide/getting-started' });
+    document.body.innerHTML = `
+      <aside class="VPSidebar">
+        <div class="curtain"></div>
+        <nav class="nav" id="VPSidebarNav" aria-labelledby="sidebar-aria-label">
+          <span class="visually-hidden" id="sidebar-aria-label">Sidebar Navigation</span>
+          <section class="VPSidebarItem">
+            <a class="VPLink" href="/guide/what-is-vitepress">What is VitePress?</a>
+            <a class="VPLink" href="/guide/getting-started">Getting Started</a>
+          </section>
+        </nav>
+      </aside>
+      <main class="VPDoc"><article>VitePress article</article></main>
+      <div class="VPNav"></div>
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-vitepress');
+    const targets = adapter?.getProgressInsertionTargets();
+
+    expect(targets?.sidebarRoot).toBe(document.querySelector('#VPSidebarNav'));
+    expect(targets?.totalProgressBefore).toBe(document.querySelector('#VPSidebarNav .visually-hidden'));
+  });
+
   it('waits for Netlify Starlight pages to load before measuring indexing height', () => {
     jsdom.reconfigure({ url: 'https://docs.netlify.com/deploy/deploy-overview/' });
     document.body.innerHTML = `
