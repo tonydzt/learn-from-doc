@@ -72,6 +72,8 @@ export type MessageKey =
   | 'manager.confirmDeleteIndex'
   | 'manager.confirmClearSiteProgress'
   | 'manager.confirmClearAllProgress'
+  | 'manager.deletePageProgress'
+  | 'manager.confirmDeletePageProgress'
   | 'popup.loading'
   | 'popup.openReactDocs'
   | 'popup.unsupportedPage'
@@ -96,7 +98,8 @@ export type MessageKey =
   | 'popup.resumeIndexingPages'
   | 'popup.resumeIndexHint'
   | 'content.docProgress'
-  | 'content.subdirectory';
+  | 'content.subdirectory'
+  | 'content.deletePageProgress';
 
 export type Messages = Record<MessageKey, string>;
 
@@ -187,6 +190,8 @@ export const EN_MESSAGES: Messages = {
   'manager.confirmDeleteIndex': 'Delete index for {title}?',
   'manager.confirmClearSiteProgress': 'Clear reading progress for {title}? The index will be kept.',
   'manager.confirmClearAllProgress': 'Clear all reading progress? Indexes will be kept.',
+  'manager.deletePageProgress': 'Delete',
+  'manager.confirmDeletePageProgress': 'Delete reading progress for this page?',
   'popup.loading': 'Reading map is loading',
   'popup.openReactDocs': 'Open React Docs',
   'popup.unsupportedPage': 'Unsupported page',
@@ -212,6 +217,7 @@ export const EN_MESSAGES: Messages = {
   'popup.resumeIndexHint': 'Resume from {current}/{total} pages indexed before interruption.',
   'content.docProgress': 'Doc progress',
   'content.subdirectory': 'Subdirectory',
+  'content.deletePageProgress': 'Delete page progress',
 };
 
 const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages>> = {
@@ -285,6 +291,8 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.confirmDeleteIndex': '删除 {title} 的索引？',
     'manager.confirmClearSiteProgress': '清空 {title} 的阅读进度？索引会保留。',
     'manager.confirmClearAllProgress': '清空全部阅读进度？索引会保留。',
+    'manager.deletePageProgress': '删除',
+    'manager.confirmDeletePageProgress': '删除该页面的阅读进度？',
     'popup.loading': '阅读地图加载中',
     'popup.openReactDocs': '打开 React 文档',
     'popup.unsupportedPage': '不支持的页面',
@@ -310,6 +318,7 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'popup.resumeIndexHint': '将从中断前已完成的 {current}/{total} 页继续。',
     'content.docProgress': '文档进度',
     'content.subdirectory': '子目录',
+    'content.deletePageProgress': '删除页面进度',
   },
   'zh-TW': {
     'manager.title': '管理器',

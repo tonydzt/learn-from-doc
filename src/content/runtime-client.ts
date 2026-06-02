@@ -34,6 +34,10 @@ export function saveProgressToBackground(
   return sendRuntimeMessage<ProgressRecord>({ type: 'SAVE_PROGRESS_RECORD', siteId, url, ranges, contentHeight });
 }
 
+export function deletePageProgressFromBackground(siteId: string, url: string): Promise<{ ok: true }> {
+  return sendRuntimeMessage<{ ok: true }>({ type: 'DELETE_PAGE_PROGRESS', siteId, url });
+}
+
 export function getAppSettingsFromBackground(): Promise<AppSettings> {
   return sendRuntimeMessage<AppSettings>({ type: 'GET_APP_SETTINGS' });
 }

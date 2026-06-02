@@ -7,6 +7,7 @@ type SiteProgressTabProps = {
   selected?: SiteSnapshot;
   fmtDate(value: number): string;
   fmtHeight(value: number): string;
+  deletePageProgress(url: string): void;
 };
 
 export function SiteProgressTab(props: SiteProgressTabProps) {
@@ -17,14 +18,22 @@ export function SiteProgressTab(props: SiteProgressTabProps) {
         <span>{t(props.language, 'manager.viewed')}</span>
         <span>{t(props.language, 'manager.ranges')}</span>
         <span>{t(props.language, 'common.updatedLabel')}</span>
+        <span aria-hidden="true" />
       </div>
       {props.selected?.progress.map((progress) => (
-        <a className="row progress-row" href={progress.url} key={progress.url} rel="noreferrer" target="_blank">
-          <span>{progress.url}</span>
+        <div className="row progress-row" key={progress.url}>
+          <a href={progress.url} rel="noreferrer" target="_blank">{progress.url}</a>
           <span>{props.fmtHeight(progress.viewedHeight)}</span>
           <span>{progress.viewedRanges.length}</span>
           <span>{props.fmtDate(progress.updatedAt)}</span>
-        </a>
+          <button
+            className="danger ghost"
+            type="button"
+            onClick={() => props.deletePageProgress(progress.url)}
+          >
+            {t(props.language, 'manager.deletePageProgress')}
+          </button>
+        </div>
       )) ?? <div className="empty">{t(props.language, 'manager.selectIndexProgress')}</div>}
     </div>
   );

@@ -27,6 +27,7 @@ type SiteDetailPageProps = {
   siteSettings?: SiteSettings;
   clearAllProgress(): void;
   clearSelectedProgress(): void;
+  deletePageProgress(url: string): void;
   deleteSelected(): void;
   saveSiteSettings(settings: Partial<SiteSettings>): void;
   selectDetailTab(detailTab: DetailTab): void;
@@ -103,6 +104,7 @@ export function SiteDetailPage(props: SiteDetailPageProps) {
 
         {props.detailTab === 'progress' && (
           <SiteProgressTab
+            deletePageProgress={props.deletePageProgress}
             fmtDate={(value) => fmtDate(value, props.language)}
             fmtHeight={fmtHeight}
             language={props.language}

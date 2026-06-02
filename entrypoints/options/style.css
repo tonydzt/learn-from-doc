@@ -668,7 +668,25 @@ h2 {
 
 .row.progress-header,
 .row.progress-row {
-  grid-template-columns: minmax(0, 1fr) 110px 80px 132px;
+  grid-template-columns: minmax(0, 1fr) 110px 80px 132px 90px;
+}
+
+.row.progress-row > a {
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row.progress-row > a:hover {
+  text-decoration: underline;
+}
+
+.row.progress-row > button.danger.ghost {
+  justify-self: end;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .row.settings-header,

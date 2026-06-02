@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import type { BackgroundHandler } from '../../types';
 import {
+  deletePageProgressForBackground,
   getPage,
   getPages,
   getProgressForSite,
@@ -20,6 +21,10 @@ export const handleContentMessages: BackgroundHandler = (message) => {
 
   if (message.type === 'SAVE_PROGRESS_RECORD') {
     return saveProgress(message.siteId, message.url, message.ranges, message.contentHeight);
+  }
+
+  if (message.type === 'DELETE_PAGE_PROGRESS') {
+    return deletePageProgressForBackground(message.siteId, message.url).then(() => ({ ok: true }));
   }
 
   return undefined;

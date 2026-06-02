@@ -94,6 +94,7 @@ export type RuntimeMessage =
   | { type: 'SAVE_SITE_SETTINGS'; siteId: string; settings: Partial<SiteSettings> }
   | { type: 'SAVE_PROGRESS_RECORD'; siteId: string; url: string; ranges: import('../progress/ranges').ViewedRange[]; contentHeight: number }
   | { type: 'DELETE_SITE_INDEX'; siteId: string }
+  | { type: 'DELETE_PAGE_PROGRESS'; siteId: string; url: string }
   | { type: 'CLEAR_SITE_PROGRESS'; siteId: string }
   | { type: 'CLEAR_ALL_PROGRESS' }
   | { type: 'GET_APP_SETTINGS' }

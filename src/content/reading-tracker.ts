@@ -24,6 +24,7 @@ import {
 } from './progress-ui';
 import {
   getAppSettingsFromBackground,
+  deletePageProgressFromBackground,
   getPageFromBackground,
   getPagesFromBackground,
   getProgressForSiteFromBackground,
@@ -210,7 +211,32 @@ export async function runReadingTracker(signal: AbortSignal): Promise<ReadingTra
 // ------------- end: 上面这一段是用来优化某些页面，加载时通过content script获取到正文的articel dom节点，但是水合之后，这个articel dom节点会被替换掉，但是tracker持有的还是老的dom，导致阅读进度记录失效 -----------------
 
   // 插入阅读进度 UI函数
-  const renderUi = () => renderProgressUi(siteId, settings.language, uiSnapshot);
+  const renderUi = () => renderProgressUi(siteId, settings.language, uiSnapshot, {
+    onDeletePageProgress: (url) => void deletePageProgress(url),
+  });
+
+  // 处理从 progress-ui 点击删除图标触发的删除请求。
+  // 需要与当前 tracker 的内存状态同步：
+  // 1) 如果删除的是当前页，重置 ranges/dirty，防止后续 flush 又写回被删除的进度。
+  // 2) 从 uiSnapshot.progress 中移除该记录，后续重渲染才能反映出进度被清除。
+  const deletePageProgress = async (url: string) => {
+    if (!canContinue()) return;
+    try {
+      await deletePageProgressFromBackground(siteId, url);
+    } catch (error) {
+      lfdDebug('delete page progress failed', { siteId, url, error });
+      return;
+    }
+    if (url === page.url) {
+      ranges = [];
+      dirty = false;
+    }
+    uiSnapshot = {
+      pages: uiSnapshot.pages,
+      progress: uiSnapshot.progress.filter((entry) => entry.url !== url),
+    };
+    if (!signal.aborted && canContinue()) await renderPageChrome();
+  };
 
   // 插入阅读地图函数
   const renderReadingMapIfEnabled = (range: ViewedRange | null) => {

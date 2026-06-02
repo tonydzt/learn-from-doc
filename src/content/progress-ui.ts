@@ -13,6 +13,15 @@ export type ProgressUiSnapshot = {
   progress: ProgressRecord[];
 };
 
+/** progress-ui 对外接收的交互回调，主要是删除某个页面进度记录。 */
+export type ProgressUiHandlers = {
+  onDeletePageProgress?: (url: string) => void;
+};
+
+// 保存每个 badge 当前生效的删除回调。click 事件只在首次创建时绑定一次，
+// 后续重渲染只更新这个映射，从而避免重复添加事件以及闭包中持有过期的 url。
+const badgeDeleteHandlerByElement = new WeakMap<HTMLElement, ((url: string) => void) | undefined>();
+
 function injectStyles() {
   // content script 会多次重新渲染 UI；样式只注入一次，避免页面中累积重复的 <style>。
   if (document.querySelector(`[${DATA_ATTR}="styles"]`)) return;
@@ -58,9 +67,11 @@ function injectStyles() {
       transition: width 180ms ease;
     }
     .lfd-page-badge {
+      position: relative;
       display: inline-flex;
       flex: 0 0 auto;
       align-items: center;
+      justify-content: center;
       margin-left: 7px;
       padding: 1px 6px;
       border-radius: 999px;
@@ -69,6 +80,36 @@ function injectStyles() {
       font: 700 10px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       vertical-align: middle;
       white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 120ms ease, color 120ms ease;
+    }
+    .lfd-page-badge .lfd-badge-text {
+      display: inline;
+      transition: opacity 120ms ease;
+    }
+    .lfd-page-badge .lfd-badge-delete {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      line-height: 1;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease;
+    }
+    .lfd-page-badge.lfd-page-badge-deletable:hover {
+      background: rgba(220, 38, 38, 0.15);
+      color: #dc2626;
+    }
+    .lfd-page-badge.lfd-page-badge-deletable:hover .lfd-badge-text {
+      opacity: 0;
+    }
+    .lfd-page-badge.lfd-page-badge-deletable:hover .lfd-badge-delete {
+      opacity: 1;
     }
     .lfd-page-link-with-badge {
       display: flex !important;
@@ -130,6 +171,7 @@ export async function renderProgressUi(
   siteId: string,
   language: AppSettings['language'],
   snapshot?: ProgressUiSnapshot,
+  handlers?: ProgressUiHandlers,
 ) {
   // adapter 决定当前站点的侧栏在哪里，以及总进度和每页 badge 应该插入到哪些节点。
   const adapter = getAdapterForPage(location.href);
@@ -189,13 +231,85 @@ export async function renderProgressUi(
     target.anchor.classList.add('lfd-page-link-with-badge');
     badge.className = 'lfd-page-badge';
     badge.setAttribute(DATA_ATTR, 'page-badge');
-    if (isSubdirectoryPage(page)) {
+    const subdirectory = isSubdirectoryPage(page);
+    const hasProgress = progressByUrl.has(target.url);
+    // 子目录占位页没有进度可删；未产生进度的页面也不必启用删除交互，避免用户误点。
+    const deletable = Boolean(handlers?.onDeletePageProgress) && !subdirectory && hasProgress;
+    badge.classList.toggle('lfd-page-badge-deletable', deletable);
+    if (subdirectory) {
       // contentHeight 为 0 的目录占位页没有可阅读正文，显示目录标签而不是 0%。
       badge.classList.add('lfd-subdirectory-badge');
-      badge.textContent = t(language, 'content.subdirectory');
+      badge.replaceChildren(document.createTextNode(t(language, 'content.subdirectory')));
+      badge.removeAttribute('role');
+      badge.removeAttribute('tabindex');
+      badge.removeAttribute('title');
+      badge.removeAttribute('aria-label');
     } else {
       badge.classList.remove('lfd-subdirectory-badge');
-      badge.textContent = formatPercent(pageProgressPercent(page, progressByUrl.get(target.url)));
+      // badge 内部拆为「百分比」与「删除图标」两个子节点，hover 时通过 CSS 切换可见性。
+      // 关键：宿主站点的 DOM 变动会触发我们的 MutationObserver 进而重新调用 renderProgressUi，
+      // 如果每次都 replaceChildren 重建子节点，正在 click 的鼠标会发生
+      // mousedown target ≠ mouseup target，浏览器就不会触发 click（也是「点 2-3 次才生效」的根因）。
+      // 因此这里复用已有的子节点，只更新文本，避免 click 在多次 render 之间被吞掉。
+      let text = badge.querySelector<HTMLElement>(':scope > .lfd-badge-text');
+      let del = badge.querySelector<HTMLElement>(':scope > .lfd-badge-delete');
+      if (!text || !del) {
+        text = document.createElement('span');
+        text.className = 'lfd-badge-text';
+        del = document.createElement('span');
+        del.className = 'lfd-badge-delete';
+        del.setAttribute('aria-hidden', 'true');
+        del.textContent = '×';
+        badge.replaceChildren(text, del);
+      }
+      const nextText = formatPercent(pageProgressPercent(page, progressByUrl.get(target.url)));
+      if (text.textContent !== nextText) text.textContent = nextText;
+      if (deletable) {
+        const label = t(language, 'content.deletePageProgress');
+        badge.setAttribute('role', 'button');
+        badge.setAttribute('tabindex', '0');
+        badge.setAttribute('title', label);
+        badge.setAttribute('aria-label', label);
+      } else {
+        badge.removeAttribute('role');
+        badge.removeAttribute('tabindex');
+        badge.removeAttribute('title');
+        badge.removeAttribute('aria-label');
+      }
+    }
+    // 最新的 url 及删除回调保存到 badge 上，避免重复绑定事件实例。
+    badge.dataset.lfdUrl = target.url;
+    badgeDeleteHandlerByElement.set(badge, deletable ? handlers!.onDeletePageProgress! : undefined);
+    if (!badge.dataset.lfdBound) {
+      // 在 mousedown 阶段就拦截：避免 anchor/SPA 的 prefetch、焦点切换、文本选择拖拽等
+      // 副作用干扰后续 click 事件。主动调用 stopImmediatePropagation 避免同一
+      // 节点上别的 listener 也响应这次 mousedown。
+      const blockUpstream = (event: Event) => {
+        if (!badgeDeleteHandlerByElement.get(badge)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof (event as Event & { stopImmediatePropagation?: () => void }).stopImmediatePropagation === 'function') {
+          (event as Event & { stopImmediatePropagation: () => void }).stopImmediatePropagation();
+        }
+      };
+      const trigger = (event: Event) => {
+        const url = badge.dataset.lfdUrl;
+        const handler = badgeDeleteHandlerByElement.get(badge);
+        if (!url || !handler) return;
+        event.preventDefault();
+        event.stopPropagation();
+        handler(url);
+      };
+      // 使用 capture 阶段绑定 mousedown，确保比宿主站点插在 anchor/document 上的
+      // capture/bubble 监听器都能被携带 stopImmediatePropagation 的事件提前拦截。
+      badge.addEventListener('mousedown', blockUpstream, { capture: true });
+      badge.addEventListener('pointerdown', blockUpstream, { capture: true });
+      badge.addEventListener('click', trigger);
+      badge.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        trigger(event);
+      });
+      badge.dataset.lfdBound = '1';
     }
     if (!existing) target.anchor.append(badge);
   }

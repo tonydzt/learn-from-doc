@@ -109,6 +109,14 @@ export function OptionsApp() {
     await load(siteId, 'siteDetail', state.detailTab);
   };
 
+  const deletePageProgress = async (url: string) => {
+    if (state.status !== 'ready' || !state.selected) return;
+    const { siteId } = state.selected.site;
+    if (!window.confirm(t(state.settings.language, 'manager.confirmDeletePageProgress'))) return;
+    await browser.runtime.sendMessage({ type: 'DELETE_PAGE_PROGRESS', siteId, url } satisfies RuntimeMessage);
+    await load(siteId, 'siteDetail', state.detailTab);
+  };
+
   const clearAllProgress = async () => {
     if (state.status !== 'ready') return;
     if (!window.confirm(t(state.settings.language, 'manager.confirmClearAllProgress'))) return;
@@ -218,6 +226,7 @@ export function OptionsApp() {
         <SiteDetailPage
           clearAllProgress={() => void clearAllProgress()}
           clearSelectedProgress={() => void clearSelectedProgress()}
+          deletePageProgress={(url) => void deletePageProgress(url)}
           deleteSelected={() => void deleteSelected()}
           detailTab={state.detailTab}
           language={language}

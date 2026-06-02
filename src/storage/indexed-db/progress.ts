@@ -27,6 +27,15 @@ export async function saveProgress(siteId: string, url: string, ranges: ViewedRa
   return record;
 }
 
+// 删除单个页面的阅读进度记录，保留页面索引本身。
+export async function deletePageProgress(siteId: string, url: string): Promise<void> {
+  // pages/progress 共用 [siteId, url] 复合主键，删除时也必须使用相同顺序的数组键。
+  const normalizedUrl = normalizePageUrl(url);
+  await tx(['progress'], 'readwrite', async ({ progress }) => {
+    progress.delete([siteId, normalizedUrl]);
+  });
+}
+
 // 只清空某个文档范围的阅读进度，保留已创建的页面索引。
 export async function clearSiteProgress(siteId: string): Promise<void> {
   const progress = await getProgressForSite(siteId);

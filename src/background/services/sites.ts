@@ -4,6 +4,7 @@ import type { IndexOverview, SiteSnapshot } from '../../shared/messages';
 import {
   clearAllProgress,
   clearSiteProgress,
+  deletePageProgress,
   deleteSiteIndex,
   getAllSites,
   getPage,
@@ -25,6 +26,10 @@ export async function clearAllProgressForBackground(): Promise<void> {
 
 export async function deleteSiteIndexForBackground(siteId: string): Promise<void> {
   await deleteSiteIndex(siteId);
+}
+
+export async function deletePageProgressForBackground(siteId: string, url: string): Promise<void> {
+  await deletePageProgress(siteId, url);
 }
 
 /** 基于已保存站点规则，计算 URL 当前命中的索引范围（整站/路径等）。 */

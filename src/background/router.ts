@@ -51,6 +51,7 @@ export const handleRuntimeMessage = createMessageRouter({
   GET_PAGE_RECORD: handleContentMessages,
   GET_SITE_PROGRESS: handleContentMessages,
   SAVE_PROGRESS_RECORD: handleContentMessages,
+  DELETE_PAGE_PROGRESS: handleContentMessages,
   // shared read queries
   GET_INDEXED_SCOPE_FOR_URL: handleSharedQueryMessages,
   GET_SITE_SNAPSHOT: handleSharedQueryMessages,
