@@ -19,6 +19,7 @@ export const DEFAULT_LANGUAGE: LanguageCode = 'en';
 
 export type AppSettings = {
   showReadingMap: boolean;
+  defaultPageReadingProgressEnabled: boolean;
   debugIndexingLogs: boolean;
   language: LanguageCode;
 };
@@ -27,6 +28,7 @@ export const APP_SETTINGS_STORAGE_KEY = 'learnFromDocSettings';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   showReadingMap: true,
+  defaultPageReadingProgressEnabled: true,
   debugIndexingLogs: false,
   language: DEFAULT_LANGUAGE,
 };
@@ -42,6 +44,9 @@ export function normalizeAppSettings(value: unknown): AppSettings {
     showReadingMap: typeof partial.showReadingMap === 'boolean'
       ? partial.showReadingMap
       : DEFAULT_APP_SETTINGS.showReadingMap,
+    defaultPageReadingProgressEnabled: typeof partial.defaultPageReadingProgressEnabled === 'boolean'
+      ? partial.defaultPageReadingProgressEnabled
+      : DEFAULT_APP_SETTINGS.defaultPageReadingProgressEnabled,
     debugIndexingLogs: typeof partial.debugIndexingLogs === 'boolean'
       ? partial.debugIndexingLogs
       : DEFAULT_APP_SETTINGS.debugIndexingLogs,

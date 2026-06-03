@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import type { AppSettings } from '../settings/app-settings';
+import type { PageSettings } from '../settings/page-settings';
 import type { SiteSettings } from '../settings/site-settings';
 import type { RuntimeMessage } from '../shared/messages';
 import type { PageIndexRecord, ProgressRecord, SiteRecord } from '../storage/db';
@@ -15,6 +16,14 @@ export function getPagesFromBackground(siteId: string): Promise<PageIndexRecord[
 
 export function getPageFromBackground(siteId: string, url: string): Promise<PageIndexRecord | undefined> {
   return sendRuntimeMessage<PageIndexRecord | undefined>({ type: 'GET_PAGE_RECORD', siteId, url });
+}
+
+export function getPageSettingsFromBackground(siteId: string, url: string): Promise<PageSettings> {
+  return sendRuntimeMessage<PageSettings>({ type: 'GET_PAGE_SETTINGS', siteId, url });
+}
+
+export function savePageSettingsToBackground(siteId: string, url: string, settings: Partial<PageSettings>): Promise<PageSettings> {
+  return sendRuntimeMessage<PageSettings>({ type: 'SAVE_PAGE_SETTINGS', siteId, url, settings });
 }
 
 export function getProgressForSiteFromBackground(siteId: string): Promise<ProgressRecord[]> {

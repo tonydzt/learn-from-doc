@@ -18,9 +18,51 @@ export type ProgressUiHandlers = {
   onDeletePageProgress?: (url: string) => void;
 };
 
+export type PageProgressToggleState = {
+  enabled: boolean;
+  language: AppSettings['language'];
+};
+
 // 保存每个 badge 当前生效的删除回调。click 事件只在首次创建时绑定一次，
 // 后续重渲染只更新这个映射，从而避免重复添加事件以及闭包中持有过期的 url。
 const badgeDeleteHandlerByElement = new WeakMap<HTMLElement, ((url: string) => void) | undefined>();
+
+const TOGGLE_OFFSET = 28;
+const TOGGLE_DRAG_THRESHOLD_PX = 4;
+// 页面记录开关的位置只在当前 content script 会话内记忆：
+// 用户可以在本页签里挪开遮挡位置，但刷新页面或新页签会回到默认右下角。
+let pageProgressTogglePosition: { left: number; top: number } | undefined;
+
+// 把拖拽后的坐标限制在视口内，避免用户把开关拖到屏幕外导致无法再操作。
+function clampTogglePosition(left: number, top: number, element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  const width = rect.width > 0 ? rect.width : 112;
+  const height = rect.height > 0 ? rect.height : 36;
+  const maxLeft = Math.max(TOGGLE_OFFSET, (window.innerWidth || document.documentElement.clientWidth || 0) - width - TOGGLE_OFFSET);
+  const maxTop = Math.max(TOGGLE_OFFSET, (window.innerHeight || document.documentElement.clientHeight || 0) - height - TOGGLE_OFFSET);
+  return {
+    left: Math.min(Math.max(TOGGLE_OFFSET, left), maxLeft),
+    top: Math.min(Math.max(TOGGLE_OFFSET, top), maxTop),
+  };
+}
+
+// 根据会话内是否已有拖拽位置，应用默认右下角或用户本次拖过的位置。
+// 拖动后必须清掉 right/bottom，否则 fixed 元素会被 left+right/top+bottom 拉伸。
+function applyTogglePosition(element: HTMLElement) {
+  if (!pageProgressTogglePosition) {
+    element.style.left = 'auto';
+    element.style.top = 'auto';
+    element.style.right = `${TOGGLE_OFFSET + 2}px`;
+    element.style.bottom = `${TOGGLE_OFFSET}px`;
+    return;
+  }
+  const position = clampTogglePosition(pageProgressTogglePosition.left, pageProgressTogglePosition.top, element);
+  pageProgressTogglePosition = position;
+  element.style.right = 'auto';
+  element.style.bottom = 'auto';
+  element.style.left = `${position.left}px`;
+  element.style.top = `${position.top}px`;
+}
 
 function injectStyles() {
   // content script 会多次重新渲染 UI；样式只注入一次，避免页面中累积重复的 <style>。
@@ -158,6 +200,48 @@ function injectStyles() {
       border-radius: 999px;
       background: rgba(236, 253, 245, 0.72);
       box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.78), 0 2px 9px rgba(6, 78, 59, 0.24);
+    }
+    .lfd-page-progress-toggle {
+      position: fixed;
+      right: 30px;
+      bottom: 28px;
+      z-index: 2147483647;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 8px 11px;
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+      color: #334155;
+      font: 750 12px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      white-space: nowrap;
+      width: max-content;
+      max-width: calc(100vw - 56px);
+    }
+    .lfd-page-progress-toggle:hover {
+      border-color: rgba(15, 118, 110, 0.32);
+      color: #0f766e;
+    }
+    .lfd-page-progress-toggle-dragging {
+      cursor: grabbing;
+    }
+    .lfd-page-progress-toggle-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #94a3b8;
+      box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.18);
+    }
+    .lfd-page-progress-toggle-enabled .lfd-page-progress-toggle-dot {
+      background: #0f766e;
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18);
     }
   `;
   document.documentElement.append(style);
@@ -328,6 +412,104 @@ export function removeProgressUi() {
     badge.remove();
   });
   removeReadingMap();
+}
+
+// 渲染单页“是否记录当前页进度”的悬浮开关。
+// 这个开关只影响当前页阅读进度是否写入，不影响总进度、侧栏 badge 或 reading map 的展示。
+export function renderPageProgressToggle(state: PageProgressToggleState, onToggle: (enabled: boolean) => void) {
+  injectStyles();
+  let button = document.querySelector<HTMLButtonElement>('[data-developer-docs-progress-tracker="page-progress-toggle"]');
+  if (!button) {
+    button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'lfd-page-progress-toggle';
+    button.setAttribute(DATA_ATTR, 'page-progress-toggle');
+    button.innerHTML = '<span class="lfd-page-progress-toggle-dot" aria-hidden="true"></span><span class="lfd-page-progress-toggle-label"></span>';
+    document.documentElement.append(button);
+  }
+
+  const nextEnabled = state.enabled;
+  const label = t(state.language, nextEnabled ? 'content.disablePageProgress' : 'content.enablePageProgress');
+  const status = t(state.language, nextEnabled ? 'content.pageProgressOn' : 'content.pageProgressOff');
+  button.classList.toggle('lfd-page-progress-toggle-enabled', nextEnabled);
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-pressed', String(nextEnabled));
+  button.querySelector<HTMLElement>('.lfd-page-progress-toggle-label')!.textContent = status;
+  button.onclick = () => onToggle(!nextEnabled);
+  applyTogglePosition(button);
+
+  if (!button.dataset.lfdDragBound) {
+    let dragStart: {
+      pointerId: number;
+      pointerX: number;
+      pointerY: number;
+      left: number;
+      top: number;
+      moved: boolean;
+    } | undefined;
+
+    button.addEventListener('pointerdown', (event) => {
+      // pointerdown 只记录起点；是否真拖动由 pointermove 的阈值判断，避免普通点击被误判为拖拽。
+      const rect = button.getBoundingClientRect();
+      dragStart = {
+        pointerId: event.pointerId,
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+        left: rect.left,
+        top: rect.top,
+        moved: false,
+      };
+      button.setPointerCapture?.(event.pointerId);
+    });
+
+    button.addEventListener('pointermove', (event) => {
+      if (!dragStart || dragStart.pointerId !== event.pointerId) return;
+      const deltaX = event.clientX - dragStart.pointerX;
+      const deltaY = event.clientY - dragStart.pointerY;
+      if (!dragStart.moved && Math.hypot(deltaX, deltaY) < TOGGLE_DRAG_THRESHOLD_PX) return;
+      dragStart.moved = true;
+      button.classList.add('lfd-page-progress-toggle-dragging');
+      // 拖动位置写入模块变量，后续 renderPageProgressToggle 重渲染时仍沿用本页签会话的位置。
+      pageProgressTogglePosition = clampTogglePosition(dragStart.left + deltaX, dragStart.top + deltaY, button);
+      applyTogglePosition(button);
+    });
+
+    button.addEventListener('pointerup', (event) => {
+      if (!dragStart || dragStart.pointerId !== event.pointerId) return;
+      const wasDragged = dragStart.moved;
+      dragStart = undefined;
+      button.classList.remove('lfd-page-progress-toggle-dragging');
+      button.releasePointerCapture?.(event.pointerId);
+      if (wasDragged) {
+        // 拖拽结束后浏览器通常会补发 click；这里标记下一次 click 需要吞掉，避免误切换开关。
+        button.dataset.lfdSuppressNextClick = '1';
+      }
+    });
+
+    button.addEventListener('pointercancel', (event) => {
+      if (!dragStart || dragStart.pointerId !== event.pointerId) return;
+      dragStart = undefined;
+      button.classList.remove('lfd-page-progress-toggle-dragging');
+      button.releasePointerCapture?.(event.pointerId);
+    });
+
+    button.addEventListener('click', (event) => {
+      if (button.dataset.lfdSuppressNextClick !== '1') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof (event as Event & { stopImmediatePropagation?: () => void }).stopImmediatePropagation === 'function') {
+        (event as Event & { stopImmediatePropagation: () => void }).stopImmediatePropagation();
+      }
+      delete button.dataset.lfdSuppressNextClick;
+    }, { capture: true });
+
+    button.dataset.lfdDragBound = '1';
+  }
+}
+
+export function removePageProgressToggle() {
+  document.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="page-progress-toggle"]')?.remove();
 }
 
 export function renderReadingMap(ranges: ViewedRange[], viewportRange: ViewedRange | null, contentHeight: number) {

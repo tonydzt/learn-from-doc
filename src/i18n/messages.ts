@@ -24,6 +24,8 @@ export type MessageKey =
   | 'manager.rightSideReadingMap'
   | 'manager.readingMapDescription'
   | 'manager.showReadingMap'
+  | 'manager.defaultPageReadingProgress'
+  | 'manager.defaultPageReadingProgressDescription'
   | 'manager.debugIndexingLogs'
   | 'manager.siteSettings'
   | 'manager.siteSettingsDescription'
@@ -99,6 +101,10 @@ export type MessageKey =
   | 'popup.resumeIndexHint'
   | 'content.docProgress'
   | 'content.subdirectory'
+  | 'content.enablePageProgress'
+  | 'content.disablePageProgress'
+  | 'content.pageProgressOn'
+  | 'content.pageProgressOff'
   | 'content.deletePageProgress';
 
 export type Messages = Record<MessageKey, string>;
@@ -142,6 +148,8 @@ export const EN_MESSAGES: Messages = {
   'manager.rightSideReadingMap': 'Right-side reading map',
   'manager.readingMapDescription': 'Show the slim page map on supported indexed documentation pages.',
   'manager.showReadingMap': 'Show right-side reading map',
+  'manager.defaultPageReadingProgress': 'Record new pages by default',
+  'manager.defaultPageReadingProgressDescription': 'When off, indexed pages wait for the per-page button before recording reading progress.',
   'manager.debugIndexingLogs': 'Index timing debug logs',
   'manager.siteSettings': 'Site settings',
   'manager.siteSettingsDescription': 'Controls for this indexed documentation site.',
@@ -217,6 +225,10 @@ export const EN_MESSAGES: Messages = {
   'popup.resumeIndexHint': 'Resume from {current}/{total} pages indexed before interruption.',
   'content.docProgress': 'Doc progress',
   'content.subdirectory': 'Subdirectory',
+  'content.enablePageProgress': 'Start recording this page',
+  'content.disablePageProgress': 'Stop recording this page',
+  'content.pageProgressOn': 'Recording',
+  'content.pageProgressOff': 'Paused',
   'content.deletePageProgress': 'Delete page progress',
 };
 
@@ -244,6 +256,8 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.rightSideReadingMap': '右侧阅读地图',
     'manager.readingMapDescription': '在支持且已索引的文档页面显示细长页面地图。',
     'manager.showReadingMap': '显示右侧阅读地图',
+    'manager.defaultPageReadingProgress': '默认记录新页面',
+    'manager.defaultPageReadingProgressDescription': '关闭后，已索引页面会等待你点击单页按钮后才记录阅读进度。',
     'manager.debugIndexingLogs': '索引耗时调试日志',
     'manager.siteSettings': '站点设置',
     'manager.siteSettingsDescription': '当前已索引文档站点的配置。',
@@ -318,6 +332,10 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'popup.resumeIndexHint': '将从中断前已完成的 {current}/{total} 页继续。',
     'content.docProgress': '文档进度',
     'content.subdirectory': '子目录',
+    'content.enablePageProgress': '开始记录当前页面',
+    'content.disablePageProgress': '停止记录当前页面',
+    'content.pageProgressOn': '记录中',
+    'content.pageProgressOff': '已暂停',
     'content.deletePageProgress': '删除页面进度',
   },
   'zh-TW': {

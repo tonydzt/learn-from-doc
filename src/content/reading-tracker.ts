@@ -26,6 +26,7 @@ import {
   getAppSettingsFromBackground,
   deletePageProgressFromBackground,
   getPageFromBackground,
+  getPageSettingsFromBackground,
   getPagesFromBackground,
   getProgressForSiteFromBackground,
   getSiteSettingsFromBackground,
@@ -90,11 +91,24 @@ export async function runReadingTracker(signal: AbortSignal): Promise<ReadingTra
   const siteSettingsPromise = shouldUsePrefetchedSiteSettings(prefetchedSiteId, siteId) && prefetchedSiteSettings
     ? prefetchedSiteSettings
     : getSiteSettingsFromBackground(siteId);
-  const pagePromise = getPageFromBackground(siteId, normalizePageUrl(location.href));
-  const [siteSettings, page] = await Promise.all([siteSettingsPromise, pagePromise]);
+  const normalizedUrl = normalizePageUrl(location.href);
+  const pagePromise = getPageFromBackground(siteId, normalizedUrl);
+  const appSettingsPromise = getAppSettingsFromBackground();
+  const pageSettingsPromise = getPageSettingsFromBackground(siteId, normalizedUrl);
+  const [siteSettings, pageSettings, page, initialSettings] = await Promise.all([
+    siteSettingsPromise,
+    pageSettingsPromise,
+    pagePromise,
+    appSettingsPromise,
+  ]);
   if (signal.aborted || !canContinue()) return undefined;
 
-  if (!shouldStartReadingTracker(siteSettings.readingProgressEnabled)) {
+  const recordingEnabled = shouldStartReadingTracker({
+    siteReadingProgressEnabled: siteSettings.readingProgressEnabled,
+    pageReadingProgressEnabled: pageSettings.readingProgressEnabled,
+    defaultPageReadingProgressEnabled: initialSettings.defaultPageReadingProgressEnabled,
+  });
+  if (siteSettings.readingProgressEnabled === false) {
     removeProgressUi();
     lfdDebug('reading tracker skipped: site reading progress disabled', {
       siteId,
@@ -135,7 +149,7 @@ export async function runReadingTracker(signal: AbortSignal): Promise<ReadingTra
     pages: sitePages,
     progress: siteProgress,
   };
-  let settings = await getAppSettingsFromBackground();
+  let settings = initialSettings;
   if (signal.aborted || !canContinue()) return undefined;
 
   // ranges 是当前页面已经读过的正文高度区间，dirty 表示内存里的 ranges 有新变化但还没保存。
@@ -286,6 +300,14 @@ export async function runReadingTracker(signal: AbortSignal): Promise<ReadingTra
       return;
     }
     const nextRanges = addViewedRange(ranges, range);
+    if (!recordingEnabled) {
+      renderReadingMapIfEnabled(range);
+      lfdTrace('reading sample skipped: page recording disabled', {
+        range,
+        url: page.url,
+      });
+      return;
+    }
 
     // 只有新增可见区间真正改变了 ranges，才标记 dirty、更新 UI 快照并安排重绘。
     // 这样滚动事件很多时不会反复保存和重绘相同的数据。

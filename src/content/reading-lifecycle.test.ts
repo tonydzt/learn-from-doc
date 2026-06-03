@@ -39,12 +39,45 @@ describe('reading tracker lifecycle', () => {
   });
 
   it('starts tracking when site reading progress is enabled or missing', () => {
-    expect(shouldStartReadingTracker(undefined)).toBe(true);
-    expect(shouldStartReadingTracker(true)).toBe(true);
+    expect(shouldStartReadingTracker({
+      siteReadingProgressEnabled: undefined,
+      pageReadingProgressEnabled: undefined,
+      defaultPageReadingProgressEnabled: true,
+    })).toBe(true);
+    expect(shouldStartReadingTracker({
+      siteReadingProgressEnabled: true,
+      pageReadingProgressEnabled: undefined,
+      defaultPageReadingProgressEnabled: true,
+    })).toBe(true);
   });
 
   it('does not start tracking when site reading progress is disabled', () => {
-    expect(shouldStartReadingTracker(false)).toBe(false);
+    expect(shouldStartReadingTracker({
+      siteReadingProgressEnabled: false,
+      pageReadingProgressEnabled: true,
+      defaultPageReadingProgressEnabled: true,
+    })).toBe(false);
+  });
+
+  it('uses page settings before the app default', () => {
+    expect(shouldStartReadingTracker({
+      siteReadingProgressEnabled: true,
+      pageReadingProgressEnabled: true,
+      defaultPageReadingProgressEnabled: false,
+    })).toBe(true);
+    expect(shouldStartReadingTracker({
+      siteReadingProgressEnabled: true,
+      pageReadingProgressEnabled: false,
+      defaultPageReadingProgressEnabled: true,
+    })).toBe(false);
+  });
+
+  it('uses the app default when the page has no override', () => {
+    expect(shouldStartReadingTracker({
+      siteReadingProgressEnabled: true,
+      pageReadingProgressEnabled: undefined,
+      defaultPageReadingProgressEnabled: false,
+    })).toBe(false);
   });
 
   it('uses prefetched site settings only for the same site', () => {

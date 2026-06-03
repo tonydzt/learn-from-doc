@@ -1,6 +1,7 @@
 import { runReadingTracker } from './reading-tracker';
 import { lfdDebug } from '../shared/logger';
 import { removeProgressUi } from './progress-ui';
+import { getPageSettingsFromBackground } from './runtime-client';
 
 const getArticleRoot = vi.fn<() => HTMLElement | null>();
 const renderReadingMap = vi.fn();
@@ -52,7 +53,11 @@ vi.mock('./progress-ui', () => ({
 }));
 
 vi.mock('./runtime-client', () => ({
-  getAppSettingsFromBackground: vi.fn(async () => ({ language: 'en', showReadingMap: true })),
+  getAppSettingsFromBackground: vi.fn(async () => ({
+    language: 'en',
+    showReadingMap: true,
+    defaultPageReadingProgressEnabled: true,
+  })),
   getPageFromBackground: vi.fn(async () => ({
     siteId: 'fastapi.tiangolo.com::root',
     url: 'https://fastapi.tiangolo.com/deployment/concepts/',
@@ -67,6 +72,7 @@ vi.mock('./runtime-client', () => ({
     order: 1,
     contentHeight: 2000,
   }]),
+  getPageSettingsFromBackground: vi.fn(async () => ({})),
   getProgressForSiteFromBackground: vi.fn(async () => []),
   getSiteSettingsFromBackground: vi.fn(async () => ({ readingProgressEnabled: true })),
   saveProgressToBackground: (...args: Parameters<typeof saveProgress>) => saveProgress(...args),
@@ -230,5 +236,24 @@ describe('reading tracker', () => {
     await stop?.({ removeUi: false });
 
     expect(removeProgressUi).not.toHaveBeenCalled();
+  });
+
+  it('renders page chrome but does not save progress when page recording is disabled', async () => {
+    vi.mocked(getPageSettingsFromBackground).mockResolvedValueOnce({ readingProgressEnabled: false });
+    const article = document.createElement('article');
+    setBox(article, { top: 0, bottom: 2000, scrollHeight: 2000 });
+    document.body.append(article);
+    getArticleRoot.mockReturnValue(article);
+
+    const stop = await runReadingTracker(new AbortController().signal);
+    expect(stop).toBeDefined();
+    expect(renderProgressUi).toHaveBeenCalled();
+    saveProgress.mockClear();
+
+    setBox(article, { top: -600, bottom: 1400, scrollHeight: 2000 });
+    window.dispatchEvent(new window.Event('scroll'));
+    await stop?.();
+
+    expect(saveProgress).not.toHaveBeenCalled();
   });
 });

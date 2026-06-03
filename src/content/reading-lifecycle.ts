@@ -33,8 +33,13 @@ export function shouldRestartTrackingForUrl(input: {
   return !input.hasActiveTracker || input.activeTrackedUrl !== input.nextTrackedUrl;
 }
 
-export function shouldStartReadingTracker(readingProgressEnabled: boolean | undefined): boolean {
-  return readingProgressEnabled !== false;
+export function shouldStartReadingTracker(input: {
+  siteReadingProgressEnabled: boolean | undefined;
+  pageReadingProgressEnabled: boolean | undefined;
+  defaultPageReadingProgressEnabled: boolean | undefined;
+}): boolean {
+  if (input.siteReadingProgressEnabled === false) return false;
+  return input.pageReadingProgressEnabled ?? input.defaultPageReadingProgressEnabled ?? true;
 }
 
 export function shouldUsePrefetchedSiteSettings(prefetchedSiteId: string | undefined, currentSiteId: string): boolean {

@@ -1,5 +1,6 @@
 import type { PageIndexRecord, SiteRecord, ProgressRecord } from '../storage/db';
 import type { AppSettings } from '../settings/app-settings';
+import type { PageSettings } from '../settings/page-settings';
 import type { SiteSettings } from '../settings/site-settings';
 import type { PortableData, PortableImportPreview, PortableSerializedData } from '../storage/portable-data';
 
@@ -89,8 +90,10 @@ export type RuntimeMessage =
   | { type: 'GET_SITE_SNAPSHOT'; siteId: string }
   | { type: 'GET_SITE_PAGES'; siteId: string }
   | { type: 'GET_PAGE_RECORD'; siteId: string; url: string }
+  | { type: 'GET_PAGE_SETTINGS'; siteId: string; url: string }
   | { type: 'GET_SITE_PROGRESS'; siteId: string }
   | { type: 'GET_SITE_SETTINGS'; siteId: string }
+  | { type: 'SAVE_PAGE_SETTINGS'; siteId: string; url: string; settings: Partial<PageSettings> }
   | { type: 'SAVE_SITE_SETTINGS'; siteId: string; settings: Partial<SiteSettings> }
   | { type: 'SAVE_PROGRESS_RECORD'; siteId: string; url: string; ranges: import('../progress/ranges').ViewedRange[]; contentHeight: number }
   | { type: 'DELETE_SITE_INDEX'; siteId: string }

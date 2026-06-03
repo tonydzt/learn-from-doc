@@ -1,4 +1,5 @@
 import type { ViewedRange } from '../../progress/ranges';
+import type { PageSettings } from '../../settings/page-settings';
 import type { SiteSettings } from '../../settings/site-settings';
 
 export type SiteRecord = {
@@ -42,4 +43,9 @@ export type SiteSettingsRecord = SiteSettings & {
   siteId: string;
 };
 
-export type StoreName = 'sites' | 'pages' | 'progress' | 'siteSettings' | 'indexCheckpoints';
+export type PageSettingsRecord = PageSettings & {
+  siteId: string;
+  url: string;
+};
+
+export type StoreName = 'sites' | 'pages' | 'progress' | 'siteSettings' | 'pageSettings' | 'indexCheckpoints';

@@ -26,6 +26,18 @@ export function SettingsPage(props: SettingsPageProps) {
       </label>
       <label className="switch-row">
         <span>
+          <strong>{t(language, 'manager.defaultPageReadingProgress')}</strong>
+          <small>{t(language, 'manager.defaultPageReadingProgressDescription')}</small>
+        </span>
+        <input
+          checked={props.settings.defaultPageReadingProgressEnabled}
+          type="checkbox"
+          onChange={(event) => props.saveSettings({ defaultPageReadingProgressEnabled: event.currentTarget.checked })}
+        />
+        <i aria-hidden="true" />
+      </label>
+      <label className="switch-row">
+        <span>
           <strong>{t(language, 'manager.debugIndexingLogs')}</strong>
           <small>{t(language, 'manager.currentStatus', { status: boolLabel(language, props.settings.debugIndexingLogs) })}</small>
         </span>

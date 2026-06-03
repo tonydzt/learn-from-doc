@@ -49,7 +49,9 @@ export const handleRuntimeMessage = createMessageRouter({
   HAS_ORIGIN_PERMISSION: handleContentMessages,
   GET_SITE_PAGES: handleContentMessages,
   GET_PAGE_RECORD: handleContentMessages,
+  GET_PAGE_SETTINGS: handleContentMessages,
   GET_SITE_PROGRESS: handleContentMessages,
+  SAVE_PAGE_SETTINGS: handleContentMessages,
   SAVE_PROGRESS_RECORD: handleContentMessages,
   DELETE_PAGE_PROGRESS: handleContentMessages,
   // shared read queries

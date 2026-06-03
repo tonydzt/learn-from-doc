@@ -3,10 +3,12 @@ import {
   getAppSettingsFromBackground,
   getIndexedScopeForCurrentPage,
   getPageFromBackground,
+  getPageSettingsFromBackground,
   getPagesFromBackground,
   getProgressForSiteFromBackground,
   getSiteSettingsFromBackground,
   hasOriginPermissionFromBackground,
+  savePageSettingsToBackground,
   saveProgressToBackground,
 } from './runtime-client';
 
@@ -28,15 +30,17 @@ describe('content runtime client', () => {
 
     await getPagesFromBackground('react.dev::learn');
     await getPageFromBackground('react.dev::learn', 'https://react.dev/learn');
+    await getPageSettingsFromBackground('react.dev::learn', 'https://react.dev/learn');
     await getProgressForSiteFromBackground('react.dev::learn');
     await getSiteSettingsFromBackground('react.dev::learn');
     await getAppSettingsFromBackground();
 
     expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(1, { type: 'GET_SITE_PAGES', siteId: 'react.dev::learn' });
     expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(2, { type: 'GET_PAGE_RECORD', siteId: 'react.dev::learn', url: 'https://react.dev/learn' });
-    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(3, { type: 'GET_SITE_PROGRESS', siteId: 'react.dev::learn' });
-    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(4, { type: 'GET_SITE_SETTINGS', siteId: 'react.dev::learn' });
-    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(5, { type: 'GET_APP_SETTINGS' });
+    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(3, { type: 'GET_PAGE_SETTINGS', siteId: 'react.dev::learn', url: 'https://react.dev/learn' });
+    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(4, { type: 'GET_SITE_PROGRESS', siteId: 'react.dev::learn' });
+    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(5, { type: 'GET_SITE_SETTINGS', siteId: 'react.dev::learn' });
+    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(6, { type: 'GET_APP_SETTINGS' });
   });
 
   it('sends permission and current page scope messages', async () => {
@@ -58,9 +62,16 @@ describe('content runtime client', () => {
   it('sends progress writes', async () => {
     vi.mocked(browser.runtime.sendMessage).mockResolvedValue({ ok: true });
 
+    await savePageSettingsToBackground('react.dev::learn', 'https://react.dev/learn', { readingProgressEnabled: false });
     await saveProgressToBackground('react.dev::learn', 'https://react.dev/learn', [{ start: 0, end: 100 }], 500);
 
-    expect(browser.runtime.sendMessage).toHaveBeenCalledWith({
+    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(1, {
+      type: 'SAVE_PAGE_SETTINGS',
+      siteId: 'react.dev::learn',
+      url: 'https://react.dev/learn',
+      settings: { readingProgressEnabled: false },
+    });
+    expect(browser.runtime.sendMessage).toHaveBeenNthCalledWith(2, {
       type: 'SAVE_PROGRESS_RECORD',
       siteId: 'react.dev::learn',
       url: 'https://react.dev/learn',

@@ -8,13 +8,15 @@ import {
   deleteSiteIndex,
   getAllSites,
   getPage,
+  getPageSettings,
   getPages,
   getProgressForSite,
   getSite,
+  savePageSettings,
   saveProgress,
 } from '../../storage/db';
 
-export { getPage, getPages, getProgressForSite, saveProgress };
+export { getPage, getPageSettings, getPages, getProgressForSite, savePageSettings, saveProgress };
 
 export async function clearSiteProgressForBackground(siteId: string): Promise<void> {
   await clearSiteProgress(siteId);

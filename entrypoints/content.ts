@@ -1,13 +1,25 @@
 import { browser } from 'wxt/browser';
 import { getAdapterForPage, getAdapterForUrl } from '../src/adapters';
 import { collectIndexLinks, getPageAdapterContext, runIndexMeasurement } from '../src/content/indexing';
+import { afterHydration } from '../src/content/hydration';
 import {
   shouldRestartTrackingForUrl,
+  shouldStartReadingTracker,
   shouldStartTrackingOnVisibilityChange,
 } from '../src/content/reading-lifecycle';
 import { runReadingTracker, type ReadingTrackerStop } from '../src/content/reading-tracker';
-import { removeProgressUi } from '../src/content/progress-ui';
-import { getIndexedScopeForCurrentPage, hasOriginPermissionFromBackground } from '../src/content/runtime-client';
+import { renderPageProgressToggle, removePageProgressToggle, removeProgressUi } from '../src/content/progress-ui';
+import {
+  getAppSettingsFromBackground,
+  getIndexedScopeForCurrentPage,
+  getPageFromBackground,
+  getPageSettingsFromBackground,
+  getSiteSettingsFromBackground,
+  hasOriginPermissionFromBackground,
+  savePageSettingsToBackground,
+} from '../src/content/runtime-client';
+import { isSubdirectoryPage } from '../src/progress/calculations';
+import { APP_SETTINGS_STORAGE_KEY } from '../src/settings/app-settings';
 import type { RuntimeMessage } from '../src/shared/messages';
 import { lfdDebug } from '../src/shared/logger';
 import {
@@ -69,6 +81,57 @@ export default defineContentScript({
       await tracker.stop(options);
     };
 
+    // 单页记录开关用于“浏览时先不记录，真正阅读时再开启”的场景。
+    // 这里只解析当前页面是否应该展示开关及其状态；开关状态只控制记录写入，不隐藏现有进度 UI。
+    const resolvePageProgressToggle = async () => {
+      if (isIndexingUrl(location.href)) return undefined;
+      if (!await canRunReadingFeatures()) return undefined;
+      await afterHydration();
+      const adapter = getAdapterForPage(location.href);
+      const scope = adapter?.getDocScope();
+      if (!adapter || !scope) return undefined;
+
+      const siteId = siteIdFor(scope.host, scope.scopeKey);
+      const url = normalizePageUrl(location.href);
+      const [appSettings, siteSettings, pageSettings, page] = await Promise.all([
+        getAppSettingsFromBackground(),
+        getSiteSettingsFromBackground(siteId),
+        getPageSettingsFromBackground(siteId, url),
+        getPageFromBackground(siteId, url),
+      ]);
+      if (!page || isSubdirectoryPage(page) || siteSettings.readingProgressEnabled === false) return undefined;
+
+      return {
+        siteId,
+        url,
+        language: appSettings.language,
+        enabled: shouldStartReadingTracker({
+          siteReadingProgressEnabled: siteSettings.readingProgressEnabled,
+          pageReadingProgressEnabled: pageSettings.readingProgressEnabled,
+          defaultPageReadingProgressEnabled: appSettings.defaultPageReadingProgressEnabled,
+        }),
+      };
+    };
+
+    // 渲染/刷新当前页的记录开关，并把点击结果持久化到 pageSettings。
+    // 保存后强制重启 tracker，让 tracker 内部的 recordingEnabled 读取到最新设置。
+    const refreshPageProgressToggle = async () => {
+      const version = routeVersion;
+      const state = await resolvePageProgressToggle();
+      if (version !== routeVersion) return;
+      if (!state) {
+        removePageProgressToggle();
+        return;
+      }
+      renderPageProgressToggle(state, (enabled) => {
+        void (async () => {
+          await savePageSettingsToBackground(state.siteId, state.url, { readingProgressEnabled: enabled });
+          await startTracking('page-progress-toggle-changed', { forceRefresh: true });
+          await refreshPageProgressToggle();
+        })();
+      });
+    };
+
     // 为当前 URL 启动阅读 tracker。
     // 这个函数会先停掉旧 tracker，再按当前页面状态决定是否真的启动新 tracker。
     const startTracking = async (reason: string, options: { forceRefresh?: boolean } = {}) => {
@@ -96,7 +159,14 @@ export default defineContentScript({
       // background 打开的索引测量页只做正文高度测量，不记录用户阅读进度。
       if (isIndexingUrl(location.href)) return;
       if (!await canRunReadingFeatures()) return;
+      const pageProgressState = await resolvePageProgressToggle();
+      if (!pageProgressState) {
+        removePageProgressToggle();
+        return;
+      }
 
+      // 即使当前页记录开关是关闭的，也仍然启动 tracker。
+      // tracker 会继续渲染总进度/badge/reading map，只是在采样时跳过当前页进度写入。
       lfdDebug('reading tracker route start requested', {
         reason,
         url: location.href,
@@ -117,6 +187,7 @@ export default defineContentScript({
 
       activeTracker = { controller, stop };
       activeTrackedUrl = nextTrackedUrl;
+      await refreshPageProgressToggle();
     };
 
     const markReady = () => {
@@ -138,14 +209,27 @@ export default defineContentScript({
       const onRuntimeMessage = (message: RuntimeMessage) => {
         if (message.type === 'GET_PAGE_ADAPTER_CONTEXT') return getPageAdapterContext();
         if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
-        if (message.type === 'INDEX_PROGRESS_UPDATED') return startTracking('index-progress-updated', { forceRefresh: true });
+        if (message.type === 'INDEX_PROGRESS_UPDATED') {
+          return refreshPageProgressToggle().then(() => startTracking('index-progress-updated', { forceRefresh: true }));
+        }
         if (message.type === 'SITE_SETTINGS_UPDATED' && message.siteId === currentSiteId()) {
-          if (message.settings.readingProgressEnabled) return startTracking('site-settings-enabled', { forceRefresh: true });
-          return stopTracking().then(removeProgressUi);
+          if (message.settings.readingProgressEnabled) {
+            return refreshPageProgressToggle().then(() => startTracking('site-settings-enabled', { forceRefresh: true }));
+          }
+          return stopTracking().then(removeProgressUi).then(removePageProgressToggle);
         }
         return undefined;
       };
       browser.runtime.onMessage.addListener(onRuntimeMessage);
+      const onStorageChanged = (
+        changes: Record<string, chrome.storage.StorageChange>,
+        areaName: string,
+      ) => {
+        if (areaName !== 'local' || !changes[APP_SETTINGS_STORAGE_KEY]) return;
+        // 全局默认记录开关变更后，当前页可能从“默认记录”变为“默认暂停”，需要刷新按钮和 tracker。
+        void refreshPageProgressToggle().then(() => startTracking('app-settings-updated', { forceRefresh: true }));
+      };
+      browser.storage.onChanged.addListener(onStorageChanged);
 
       // WXT 会在 history navigation 时触发这个事件；React/Docusaurus 这类 SPA 不会重新注入 content script。
       ctx.addEventListener(window, 'wxt:locationchange', () => {
@@ -166,6 +250,8 @@ export default defineContentScript({
         root.removeAttribute(CONTENT_SCRIPT_PENDING_ATTR);
         globalThis.clearInterval(locationPoll);
         browser.runtime.onMessage.removeListener(onRuntimeMessage);
+        browser.storage.onChanged.removeListener(onStorageChanged);
+        removePageProgressToggle();
         void stopTracking();
       });
 
@@ -178,6 +264,8 @@ export default defineContentScript({
 
       // 普通阅读模式：页面满足运行条件时启动 tracker；否则保持 content script 空运行。
       if (await canRunReadingFeatures()) {
+        // 先渲染单页开关，避免全局默认关闭时用户看不到开启入口。
+        await refreshPageProgressToggle();
         await startTracking('initial-load');
       }
       markReady();
