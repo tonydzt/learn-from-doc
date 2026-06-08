@@ -1,6 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
-// Typical test site: Vite Docs, https://vite.dev/guide/
+// Manual test sites:
+// - Vite Docs, https://vite.dev/guide/ ✅
+// - VitePress, https://vitepress.dev/guide/getting-started ✅
+// - Vitest, https://vitest.dev/guide/ ✅ 很多页面没加入索引
 export const VitePressAdapter = createFrameworkAdapter({
   id: 'framework-vitepress',
   frameworkName: 'VitePress',
@@ -19,6 +22,10 @@ export const VitePressAdapter = createFrameworkAdapter({
     '.VPSidebar',
     '.VPDoc',
     '.VPNav',
+  ],
+  progressRootSelectors: [
+    '#VPSidebarNav',
+    ':scope > .nav',
   ],
   expandableSelectors: [
     'button[aria-expanded="false"]',

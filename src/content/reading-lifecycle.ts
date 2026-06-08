@@ -1,29 +1,17 @@
-const READING_TRACKER_OWNER_ATTR = 'data-developer-docs-progress-tracker-owner';
-
-export function claimReadingTrackerOwner(root: HTMLElement, ownerId: string): void {
-  root.setAttribute(READING_TRACKER_OWNER_ATTR, ownerId);
-}
-
-export function isReadingTrackerOwner(root: HTMLElement, ownerId: string): boolean {
-  return root.getAttribute(READING_TRACKER_OWNER_ATTR) === ownerId;
-}
-
 export function shouldContinueTracking(input: {
-  isActiveOwner: boolean;
+  isSignalAborted: boolean;
   trackedUrl: string;
   currentUrl: string;
 }): boolean {
-  return input.isActiveOwner && input.trackedUrl === input.currentUrl;
+  return !input.isSignalAborted && input.trackedUrl === input.currentUrl;
 }
 
 export function shouldFlushTrackingProgress(input: {
-  isActiveOwner: boolean;
   isFinalFlush: boolean;
   isSignalAborted: boolean;
   trackedUrl: string;
   currentUrl: string;
 }): boolean {
-  if (!input.isActiveOwner) return false;
   if (input.isFinalFlush) return true;
   return !input.isSignalAborted && input.trackedUrl === input.currentUrl;
 }
@@ -35,8 +23,23 @@ export function shouldStartTrackingOnVisibilityChange(
   return visibilityState === 'visible' && !hasActiveTracker;
 }
 
-export function shouldStartReadingTracker(readingProgressEnabled: boolean | undefined): boolean {
-  return readingProgressEnabled !== false;
+export function shouldRestartTrackingForUrl(input: {
+  activeTrackedUrl: string | undefined;
+  forceRefresh: boolean;
+  hasActiveTracker: boolean;
+  nextTrackedUrl: string;
+}): boolean {
+  if (input.forceRefresh) return true;
+  return !input.hasActiveTracker || input.activeTrackedUrl !== input.nextTrackedUrl;
+}
+
+export function shouldStartReadingTracker(input: {
+  siteReadingProgressEnabled: boolean | undefined;
+  pageReadingProgressEnabled: boolean | undefined;
+  defaultPageReadingProgressEnabled: boolean | undefined;
+}): boolean {
+  if (input.siteReadingProgressEnabled === false) return false;
+  return input.pageReadingProgressEnabled ?? input.defaultPageReadingProgressEnabled ?? true;
 }
 
 export function shouldUsePrefetchedSiteSettings(prefetchedSiteId: string | undefined, currentSiteId: string): boolean {

@@ -1,10 +1,12 @@
 import { createFrameworkAdapter } from './common';
 
-// Typical test site: React Native Docs, https://reactnative.dev/docs/getting-started
+// Manual test sites:
+// - React Native Docs, https://reactnative.dev/docs/getting-started ✅
+// - Jest, https://jestjs.io/docs/getting-started ✅
+// - WebdriverIO, https://webdriver.io/docs/gettingstarted/ ✅
 export const DocusaurusAdapter = createFrameworkAdapter({
   id: 'framework-docusaurus',
   frameworkName: 'Docusaurus',
-  requiresHydrationWait: true,
   sidebarSelectors: [
     'nav[aria-label="Docs sidebar"]',
     'aside nav.menu',

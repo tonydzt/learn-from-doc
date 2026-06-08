@@ -21,7 +21,7 @@ describe('origin permission helpers', () => {
     expect(originPermissionPatternForUrl('chrome://extensions')).toBeNull();
   });
 
-  it('requests persistent origin permission for framework adapters only', () => {
+  it('requests persistent origin permission for indexable web adapters', () => {
     expect(shouldRequestPersistentOriginPermission({
       url: 'https://ui.shadcn.com/docs',
       adapterKind: 'framework',
@@ -29,6 +29,12 @@ describe('origin permission helpers', () => {
     expect(shouldRequestPersistentOriginPermission({
       url: 'https://react.dev/learn',
       adapterKind: 'site',
+    })).toBe(true);
+  });
+
+  it('does not request persistent origin permission without an adapter kind', () => {
+    expect(shouldRequestPersistentOriginPermission({
+      url: 'https://react.dev/learn',
     })).toBe(false);
   });
 

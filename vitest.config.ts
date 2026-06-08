@@ -22,8 +22,7 @@ export default defineConfig({
     // 如果关闭，就需要在每个测试文件里从 vitest 显式 import。
     globals: true,
 
-    // 只收集 src 目录下以 .test.ts 结尾的测试文件。
-    // entrypoints 里的 React 页面和 WXT 入口目前不在这个单元测试范围内。
-    include: ['src/**/*.test.ts'],
+    // 收集核心逻辑和 options 页面内可独立测试的格式化逻辑。
+    include: ['src/**/*.test.ts', 'entrypoints/options/app/**/*.test.ts'],
   },
 });

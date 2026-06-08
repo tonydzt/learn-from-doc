@@ -1,6 +1,9 @@
 import { createFrameworkAdapter } from './common';
 
-// Typical test site: Nextra Docs, https://nextra.site/docs
+// Manual test sites:
+// - Nextra Docs, https://nextra.site/docs ✅
+// - Docs Demo App, https://docs-demo-app.vercel.app/ ✅ TODO: 这个网站把导航栏里的链接都创建成索引了，这样不对，应该只是左侧目录
+// - React Flow, https://reactflow.dev/learn ✅
 export const NextraAdapter = createFrameworkAdapter({
   id: 'framework-nextra',
   frameworkName: 'Nextra',

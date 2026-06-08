@@ -4,11 +4,12 @@ import { browser } from 'wxt/browser';
 import { t } from '../../src/i18n/messages';
 import { totalProgressPercent } from '../../src/progress/calculations';
 import { detectionResultState, initialDetectionState } from '../../src/popup/detection';
+import { cachedDetectedFrameworkContextForUrl, saveDetectedFrameworkContext } from '../../src/popup/framework-detection-cache';
 import { probePageAdapterContext } from '../../src/popup/framework-probe';
-import { shouldRequestPersistentOriginPermission } from '../../src/popup/permissions';
+import { prepareIndexStart } from '../../src/popup/index-start';
 import { DEFAULT_LANGUAGE, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
-import type { PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
-import { originPermissionPatternForUrl } from '../../src/shared/origin-permissions';
+import { injectContentScript } from '../../src/shared/content-script-injection';
+import type { IndexCheckpointSummary, PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
 import { siteIdFor } from '../../src/shared/url';
 import type { SiteRecord } from '../../src/storage/db';
 import './style.css';
@@ -25,6 +26,7 @@ type PopupContext = {
   detectionFailed?: boolean;
   totalPercent?: number;
   pageCount?: number;
+  indexCheckpoint?: IndexCheckpointSummary | null;
 };
 
 type LoadState =
@@ -36,16 +38,6 @@ type IndexRunProgress = Extract<RuntimeMessage, { type: 'INDEX_RUN_PROGRESS' }>[
 
 function fmt(value: number | undefined): string {
   return `${Math.round(value ?? 0)}%`;
-}
-
-async function injectContentScript(tabId: number): Promise<void> {
-  const file = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
-  if (!file) throw new Error('Content script file not found.');
-  const scriptFile = file as NonNullable<Parameters<typeof browser.scripting.executeScript>[0]['files']>[number];
-  await browser.scripting.executeScript({
-    target: { tabId },
-    files: [scriptFile],
-  });
 }
 
 async function contextFromExistingContentScript(tabId: number): Promise<PageAdapterContext | null> {
@@ -67,12 +59,21 @@ async function probeContextFromTab(tabId: number): Promise<PageAdapterContext> {
 }
 
 async function injectContentScriptForDetectedPage(tabId: number, fallback: PageAdapterContext): Promise<PageAdapterContext> {
-  await injectContentScript(tabId);
+  await injectContentScript(tabId, 'popup:detect-framework');
   try {
     const context = await browser.tabs.sendMessage(tabId, { type: 'GET_PAGE_ADAPTER_CONTEXT' } satisfies RuntimeMessage) as PageAdapterContext;
     return context.supported ? context : fallback;
   } catch {
     return fallback;
+  }
+}
+
+async function contextFromInjectedContentScript(tabId: number): Promise<PageAdapterContext | null> {
+  try {
+    await injectContentScript(tabId, 'popup:cached-framework-context');
+    return contextFromExistingContentScript(tabId);
+  } catch {
+    return null;
   }
 }
 
@@ -85,16 +86,6 @@ function contextFromIndexedSite(site: SiteRecord): Required<Pick<PageAdapterCont
     adapterKind: 'framework',
     indexable: true,
   };
-}
-
-async function ensurePersistentOriginPermission(url: string | undefined, adapterKind: PageAdapterContext['adapterKind']): Promise<void> {
-  if (!shouldRequestPersistentOriginPermission({ url, adapterKind })) return;
-  const originPattern = originPermissionPatternForUrl(url);
-  if (!originPattern) return;
-  const alreadyGranted = await browser.permissions.contains({ origins: [originPattern] });
-  if (alreadyGranted) return;
-  const granted = await browser.permissions.request({ origins: [originPattern] });
-  if (!granted) throw new Error('Origin permission is required to index and auto-enable this documentation site.');
 }
 
 function ProgressRing({ value }: { value: number }) {
@@ -129,8 +120,9 @@ function App() {
     settingsPromise: Promise<AppSettings>,
   ) => {
     const siteId = siteIdFor(pageContext.host, pageContext.scopeKey);
-    const [snapshot, indexRunProgress, settings] = await Promise.all([
+    const [snapshot, indexCheckpoint, indexRunProgress, settings] = await Promise.all([
       browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as Promise<SiteSnapshot | undefined>,
+      browser.runtime.sendMessage({ type: 'GET_INDEX_CHECKPOINT', siteId } satisfies RuntimeMessage) as Promise<IndexCheckpointSummary | null>,
       indexRunProgressPromise,
       settingsPromise,
     ]);
@@ -148,6 +140,7 @@ function App() {
         frameworkName: pageContext.frameworkName,
         totalPercent: snapshot ? totalProgressPercent(snapshot.pages, snapshot.progress) : 0,
         pageCount: snapshot?.pages.length ?? 0,
+        indexCheckpoint,
       },
     });
   }, [restoreIndexProgress]);
@@ -180,6 +173,18 @@ function App() {
         const indexedSite = await browser.runtime.sendMessage({ type: 'GET_INDEXED_SCOPE_FOR_URL', url: tab.url } satisfies RuntimeMessage) as SiteRecord | null;
         if (indexedSite) {
           await loadSupportedContext(contextFromIndexedSite(indexedSite), indexRunProgressPromise, settingsPromise);
+          return;
+        }
+      }
+
+      if (initial.status === 'needs-manual-detect' && tab.url) {
+        const cachedContext = await cachedDetectedFrameworkContextForUrl(tab.url);
+        if (cachedContext?.host && cachedContext.scopeKey && cachedContext.scopeTitle) {
+          const pageContext = await contextFromInjectedContentScript(tab.id);
+          const restoredContext = pageContext?.supported && pageContext.host && pageContext.scopeKey && pageContext.scopeTitle
+            ? pageContext
+            : cachedContext;
+          await loadSupportedContext(restoredContext as Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext, indexRunProgressPromise, settingsPromise);
           return;
         }
       }
@@ -229,7 +234,12 @@ function App() {
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (tab.id == null) throw new Error('No active tab found.');
       const context = state.status === 'ready' ? state.context : undefined;
-      await ensurePersistentOriginPermission(tab.url, context?.supported ? context.adapterKind : undefined);
+      const startMode = await prepareIndexStart({
+        tabId: tab.id,
+        url: tab.url,
+        adapterKind: context?.supported ? context.adapterKind : undefined,
+      });
+      if (startMode === 'background-resumes') return;
       const result = await browser.runtime.sendMessage({ type: 'START_INDEX', tabId: tab.id } satisfies RuntimeMessage) as StartIndexResult;
       if (!result.ok) throw new Error(result.error);
       await load();
@@ -261,6 +271,7 @@ function App() {
         return;
       }
       const pageContext = await injectContentScriptForDetectedPage(tab.id, detected.context);
+      await saveDetectedFrameworkContext(pageContext);
       await loadSupportedContext(
         pageContext as Required<Pick<PageAdapterContext, 'host' | 'scopeKey' | 'scopeTitle'>> & PageAdapterContext,
         browser.runtime.sendMessage({ type: 'GET_INDEX_RUN_PROGRESS' } satisfies RuntimeMessage) as Promise<IndexRunProgress | null>,
@@ -315,7 +326,8 @@ function App() {
 
   const { context } = state;
   const language = state.settings.language;
-  const actionLabel = context.indexed ? t(language, 'popup.rebuildIndex') : t(language, 'popup.createIndex');
+  const hasResumeCheckpoint = Boolean(context.indexCheckpoint && context.indexCheckpoint.current < context.indexCheckpoint.total);
+  const actionLabel = hasResumeCheckpoint ? t(language, 'popup.resumeIndex') : context.indexed ? t(language, 'popup.rebuildIndex') : t(language, 'popup.createIndex');
 
   return (
     <main className="shell">
@@ -368,10 +380,21 @@ function App() {
               </div>
               <p>{indexProgress.currentTitle ?? (indexProgress.phase === 'saving' ? t(language, 'popup.savingIndex') : t(language, 'popup.scanningSidebar'))}</p>
             </section>
+          ) : hasResumeCheckpoint && context.indexCheckpoint ? (
+            <section className="index-progress">
+              <div className="index-progress-row">
+                <span>{t(language, 'popup.resumeIndex')}</span>
+                <strong>{`${context.indexCheckpoint.current}/${context.indexCheckpoint.total}`}</strong>
+              </div>
+              <div className="bar">
+                <i style={{ width: `${(context.indexCheckpoint.current / context.indexCheckpoint.total) * 100}%` }} />
+              </div>
+              <p>{t(language, 'popup.resumeIndexHint', { current: context.indexCheckpoint.current, total: context.indexCheckpoint.total })}</p>
+            </section>
           ) : null}
 
           <button className="primary" type="button" onClick={() => void startIndex()} disabled={indexing}>
-            {indexing ? t(language, 'popup.indexingPages') : actionLabel}
+            {indexing ? (hasResumeCheckpoint ? t(language, 'popup.resumeIndexingPages') : t(language, 'popup.indexingPages')) : actionLabel}
           </button>
         </>
       )}

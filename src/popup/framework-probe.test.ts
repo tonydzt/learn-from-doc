@@ -76,6 +76,29 @@ describe('popup framework probe', () => {
     });
   });
 
+  it('detects Retype docs with a root-wide scope without loading the full content script', () => {
+    history.replaceState(null, '', 'https://react.dev/usage/');
+    document.body.innerHTML = `
+      <aside id="retype-sidebar-left">
+        <a href="/">What is SillyTavern?</a>
+        <a href="/usage/">Usage</a>
+        <a href="/installation/">Installation</a>
+      </aside>
+      <main id="retype-content">Usage article</main>
+      <meta name="generator" content="Retype 4.5.3">
+    `;
+
+    expect(probePageAdapterContext()).toEqual({
+      supported: true,
+      host: 'react.dev',
+      scopeKey: 'root',
+      scopeTitle: 'Retype Docs',
+      adapterKind: 'framework',
+      frameworkName: 'Retype',
+      indexable: true,
+    });
+  });
+
   it('does not detect ordinary pages', () => {
     history.replaceState(null, '', 'https://react.dev/');
     document.body.innerHTML = '<main><h1>Example</h1><p>Not a docs framework.</p></main>';

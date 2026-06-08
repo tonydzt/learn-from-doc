@@ -1,713 +1,41 @@
 import { browser } from 'wxt/browser';
 import { getAdapterForPage, getAdapterForUrl } from '../src/adapters';
-import { t } from '../src/i18n/messages';
-import { isSubdirectoryPage, pageProgressPercent, totalProgressPercent } from '../src/progress/calculations';
-import { completeRangeAtPageEnd } from '../src/progress/completion';
-import { readingMapSegments, viewportMapSegment } from '../src/progress/reading-map';
-import { addViewedRange, mergeRanges, viewedHeight, type ViewedRange } from '../src/progress/ranges';
-import { scrollableAncestors } from '../src/progress/scroll-targets';
-import { APP_SETTINGS_STORAGE_KEY, normalizeAppSettings, type AppSettings } from '../src/settings/app-settings';
-import type { SiteSettings } from '../src/settings/site-settings';
-import { DATA_ATTR, FLUSH_INTERVAL_MS } from '../src/shared/constants';
-import { waitForPageHydration } from '../src/shared/hydration';
-import { lfdDebug, lfdTrace } from '../src/shared/logger';
-import type { IndexLinksResponse, PageAdapterContext, RuntimeMessage } from '../src/shared/messages';
-import { isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
-import type { PageIndexRecord, ProgressRecord, SiteRecord } from '../src/storage/db';
+import { collectIndexLinks, getPageAdapterContext, runIndexMeasurement } from '../src/content/indexing';
+import { afterHydration } from '../src/content/hydration';
 import {
-  claimReadingTrackerOwner,
-  isReadingTrackerOwner,
-  shouldContinueTracking,
-  shouldFlushTrackingProgress,
+  shouldRestartTrackingForUrl,
   shouldStartReadingTracker,
   shouldStartTrackingOnVisibilityChange,
-  shouldUsePrefetchedSiteSettings,
 } from '../src/content/reading-lifecycle';
+import { runReadingTracker, type ReadingTrackerStop } from '../src/content/reading-tracker';
+import { renderPageProgressToggle, removePageProgressToggle, removeProgressUi } from '../src/content/progress-ui';
+import {
+  getAppSettingsFromBackground,
+  getIndexedScopeForCurrentPage,
+  getPageFromBackground,
+  getPageSettingsFromBackground,
+  getSiteSettingsFromBackground,
+  hasOriginPermissionFromBackground,
+  savePageSettingsToBackground,
+} from '../src/content/runtime-client';
+import { isSubdirectoryPage } from '../src/progress/calculations';
+import { APP_SETTINGS_STORAGE_KEY } from '../src/settings/app-settings';
+import type { RuntimeMessage } from '../src/shared/messages';
+import { lfdDebug } from '../src/shared/logger';
+import {
+  CONTENT_SCRIPT_BOOTING_ATTR,
+  CONTENT_SCRIPT_PENDING_ATTR,
+  CONTENT_SCRIPT_READY_ATTR,
+  INJECTION_SOURCE_ATTR,
+} from '../src/shared/constants';
+import { isIndexingUrl, normalizePageUrl, siteIdFor } from '../src/shared/url';
 
-// 向 background 发送 runtime message。
-// content script 不直接访问数据库和扩展管理页，统一通过 background 做数据读写和调度。
-function sendRuntimeMessage<T>(message: RuntimeMessage): Promise<T> {
-  return browser.runtime.sendMessage(message) as Promise<T>;
-}
-
-// 读取某个文档范围下的全部页面索引。
-function getPagesFromBackground(siteId: string): Promise<PageIndexRecord[]> {
-  return sendRuntimeMessage<PageIndexRecord[]>({ type: 'GET_SITE_PAGES', siteId });
-}
-
-// 读取当前 URL 对应的单页索引，用来判断当前页面是否已经被索引。
-function getPageFromBackground(siteId: string, url: string): Promise<PageIndexRecord | undefined> {
-  return sendRuntimeMessage<PageIndexRecord | undefined>({ type: 'GET_PAGE_RECORD', siteId, url });
-}
-
-// 读取某个文档范围下的全部阅读进度，用来计算总进度和页面 badge。
-function getProgressForSiteFromBackground(siteId: string): Promise<ProgressRecord[]> {
-  return sendRuntimeMessage<ProgressRecord[]>({ type: 'GET_SITE_PROGRESS', siteId });
-}
-
-// 读取站点级配置，用来决定该文档范围是否启用阅读进度功能。
-function getSiteSettingsFromBackground(siteId: string): Promise<SiteSettings> {
-  return sendRuntimeMessage<SiteSettings>({ type: 'GET_SITE_SETTINGS', siteId });
-}
-
-// 保存当前页面的阅读区间；真正写 IndexedDB 的动作由 background 完成。
-function saveProgressToBackground(siteId: string, url: string, ranges: ViewedRange[], contentHeight: number): Promise<ProgressRecord> {
-  return sendRuntimeMessage<ProgressRecord>({ type: 'SAVE_PROGRESS_RECORD', siteId, url, ranges, contentHeight });
-}
-
-// 读取扩展全局设置，例如是否显示右侧阅读地图。
-function getAppSettingsFromBackground(): Promise<AppSettings> {
-  return sendRuntimeMessage<AppSettings>({ type: 'GET_APP_SETTINGS' });
-}
-
-function originPatternForCurrentPage(): string {
-  return `${location.origin}/*`;
-}
-
-function hasOriginPermissionFromBackground(): Promise<boolean> {
-  return sendRuntimeMessage<boolean>({ type: 'HAS_ORIGIN_PERMISSION', origin: originPatternForCurrentPage() });
-}
-
-function getIndexedScopeForCurrentPage(): Promise<SiteRecord | null> {
-  return sendRuntimeMessage<SiteRecord | null>({ type: 'GET_INDEXED_SCOPE_FOR_URL', url: location.href });
-}
-
+// 判断当前页面是否允许启动阅读相关能力。
+// 固定支持站点直接放行；用户授权过 origin 或该 URL 已属于某个索引范围时，也允许动态注入。
 async function canRunReadingFeatures(): Promise<boolean> {
   if (getAdapterForUrl(location.href)) return true;
   if (await hasOriginPermissionFromBackground()) return true;
   return Boolean(await getIndexedScopeForCurrentPage());
-}
-
-type ReadingTrackerStop = () => Promise<void>;
-type ProgressUiSnapshot = {
-  pages: PageIndexRecord[];
-  progress: ProgressRecord[];
-};
-
-const READING_HYDRATION_TIMEOUT_MS = 8000;
-const READING_IDLE_TIMEOUT_MS = 1200;
-const INDEXING_HYDRATION_TIMEOUT_MS = 500;
-const INDEXING_IDLE_TIMEOUT_MS = 200;
-
-function afterHydration(
-  hydrationTimeoutMs = READING_HYDRATION_TIMEOUT_MS,
-  idleTimeoutMs = READING_IDLE_TIMEOUT_MS,
-): Promise<void> {
-  // 文档站点通常先加载 HTML，再由 React/Docusaurus 接管页面。
-  // 等页面框架 hydration 完成后再注入 UI，避免触发宿主 React hydration mismatch。
-  return waitForPageHydration(document, hydrationTimeoutMs).then(() => new Promise((resolve) => {
-    const run = () => resolve();
-    if (typeof window.requestIdleCallback === 'function') {
-      window.requestIdleCallback(run, { timeout: idleTimeoutMs });
-      return;
-    }
-    globalThis.setTimeout(run, Math.min(idleTimeoutMs, 500));
-  }));
-}
-
-function navigationLoadMs(): number | undefined {
-  const entry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-  const loadMs = entry?.loadEventEnd;
-  return loadMs && loadMs > 0 ? Math.round(loadMs) : undefined;
-}
-
-function resourceCount(): number {
-  return performance.getEntriesByType('resource').length;
-}
-
-function topImageDurations(): number[] {
-  return (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
-    .filter((entry) => entry.initiatorType === 'img')
-    .map((entry) => Math.round(entry.duration))
-    .sort((a, b) => b - a)
-    .slice(0, 5);
-}
-
-// 读取正文区域的渲染高度；scrollHeight 和 bounding rect 取较大值，减少布局差异带来的低估。
-function articleHeight(article: HTMLElement): number {
-  return Math.max(article.scrollHeight, article.getBoundingClientRect().height, 1);
-}
-
-// 计算正文元素当前进入 viewport 的高度区间。
-function visibleRange(article: HTMLElement): ViewedRange | null {
-  // 把“当前视口看到了正文的哪一段”转换为正文内部的高度区间。
-  // 例如 start=500/end=1200 表示正文第 500px 到 1200px 被看过。
-  const rect = article.getBoundingClientRect();
-  const viewportTop = 0;
-  const viewportBottom = window.innerHeight || document.documentElement.clientHeight;
-  const visibleTop = Math.max(rect.top, viewportTop);
-  const visibleBottom = Math.min(rect.bottom, viewportBottom);
-  if (visibleBottom <= visibleTop) return null;
-
-  const start = visibleTop - rect.top;
-  const end = visibleBottom - rect.top;
-  return { start, end };
-}
-
-function isArticleScrolledToEnd(article: HTMLElement): boolean {
-  const rect = article.getBoundingClientRect();
-  const viewportBottom = window.innerHeight || document.documentElement.clientHeight;
-  return rect.bottom <= viewportBottom + 2;
-}
-
-// 注入本扩展页面内 UI 需要的 CSS。用 DATA_ATTR 防止重复插入 style 标签。
-function injectStyles() {
-  if (document.querySelector(`[${DATA_ATTR}="styles"]`)) return;
-  const style = document.createElement('style');
-  style.setAttribute(DATA_ATTR, 'styles');
-  style.textContent = `
-    .lfd-total-card {
-      box-sizing: border-box;
-      margin: 0 0 14px;
-      padding: 12px;
-      border: 1px solid rgba(15, 23, 42, 0.12);
-      border-radius: 8px;
-      background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(246,248,251,.96));
-      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
-      color: #111827;
-      font: 500 12px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    .lfd-total-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-    .lfd-total-title {
-      color: #475569;
-      letter-spacing: .01em;
-    }
-    .lfd-total-value {
-      color: #0f766e;
-      font-weight: 750;
-    }
-    .lfd-total-track {
-      overflow: hidden;
-      height: 7px;
-      border-radius: 999px;
-      background: #e2e8f0;
-    }
-    .lfd-total-fill {
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, #14b8a6, #0f766e);
-      transition: width 180ms ease;
-    }
-    .lfd-page-badge {
-      display: inline-flex;
-      flex: 0 0 auto;
-      align-items: center;
-      margin-left: 7px;
-      padding: 1px 6px;
-      border-radius: 999px;
-      background: rgba(20, 184, 166, 0.1);
-      color: #0f766e;
-      font: 700 10px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      vertical-align: middle;
-      white-space: nowrap;
-    }
-    .lfd-page-link-with-badge {
-      display: flex !important;
-      align-items: center;
-      gap: 7px;
-    }
-    .lfd-page-link-with-badge > :not([data-developer-docs-progress-tracker="page-badge"]) {
-      flex: 1 1 auto;
-      min-width: 0;
-    }
-    .lfd-page-link-with-badge > .lfd-page-badge {
-      margin-left: 0;
-    }
-    .lfd-subdirectory-badge {
-      background: rgba(220, 38, 38, 0.1);
-      color: #dc2626;
-    }
-    .lfd-reading-map {
-      position: fixed;
-      top: 0;
-      bottom: 0;
-      right: 18px;
-      z-index: 2147483646;
-      width: 8px;
-      border-left: 1px solid rgba(15, 23, 42, 0.1);
-      border-right: 1px solid rgba(255, 255, 255, 0.54);
-      background: linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.015));
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.44), 0 0 18px rgba(15, 23, 42, 0.1);
-      overflow: hidden;
-      pointer-events: none;
-    }
-    .lfd-reading-map-segment {
-      position: absolute;
-      left: 1px;
-      right: 1px;
-      border-radius: 999px;
-      background: linear-gradient(180deg, #34d399, #059669);
-      box-shadow: 0 0 10px rgba(5, 150, 105, 0.38);
-    }
-    .lfd-reading-map-viewport {
-      position: absolute;
-      left: -2px;
-      right: -2px;
-      min-height: 10px;
-      border: 1px solid rgba(6, 78, 59, 0.72);
-      border-radius: 999px;
-      background: rgba(236, 253, 245, 0.72);
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.78), 0 2px 9px rgba(6, 78, 59, 0.24);
-    }
-  `;
-  document.documentElement.append(style);
-}
-
-// 把数值百分比格式化成整数百分比文本。
-function formatPercent(value: number): string {
-  return `${Math.round(value)}%`;
-}
-
-// 在 react.dev 左侧导航注入总进度卡片和每个页面链接后的进度 badge。
-async function renderProgressUi(siteId: string, language: AppSettings['language'], snapshot?: ProgressUiSnapshot) {
-  // 页面内 UI 是直接注入到 react.dev DOM 里的，不是 React 组件。
-  // MutationObserver 触发重渲染时会重复调用这里，所以优先使用内存快照减少 message 往返。
-  const adapter = getAdapterForPage(location.href);
-  const targets = adapter?.getProgressInsertionTargets();
-  if (!targets) return;
-
-  const [pages, progress] = snapshot
-    ? [snapshot.pages, snapshot.progress]
-    : await Promise.all([
-      getPagesFromBackground(siteId),
-      getProgressForSiteFromBackground(siteId),
-    ]);
-  // 用 URL 对齐 page 和 progress，因为 IndexedDB 里这两类记录是分开存的。
-  const progressByUrl = new Map(progress.map((entry) => [entry.url, entry]));
-  const pageByUrl = new Map(pages.map((page) => [page.url, page]));
-
-  injectStyles();
-
-  let totalCard = targets.sidebarRoot.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="total"]');
-  if (!totalCard) {
-    totalCard = document.createElement('div');
-    totalCard.className = 'lfd-total-card';
-    totalCard.setAttribute(DATA_ATTR, 'total');
-    totalCard.innerHTML = `
-      <div class="lfd-total-row">
-        <span class="lfd-total-title"></span>
-        <span class="lfd-total-value">0%</span>
-      </div>
-      <div class="lfd-total-track"><div class="lfd-total-fill"></div></div>
-    `;
-    // adapter 提供插入位置，避免核心逻辑猜测 react.dev 的 DOM 结构。
-    targets.sidebarRoot.insertBefore(totalCard, targets.totalProgressBefore);
-  }
-
-  const total = totalProgressPercent(pages, progress);
-  totalCard.querySelector<HTMLElement>('.lfd-total-title')!.textContent = t(language, 'content.docProgress');
-  totalCard.querySelector<HTMLElement>('.lfd-total-value')!.textContent = formatPercent(total);
-  totalCard.querySelector<HTMLElement>('.lfd-total-fill')!.style.width = `${total}%`;
-
-  const targetAnchors = new Set(targets.pageLinkTargets.map((target) => target.anchor));
-  targets.sidebarRoot.querySelectorAll<HTMLElement>('[data-developer-docs-progress-tracker="page-badge"]').forEach((badge) => {
-    const anchor = badge.closest('a');
-    if (!anchor || !targetAnchors.has(anchor)) {
-      anchor?.classList.remove('lfd-page-link-with-badge');
-      badge.remove();
-    }
-  });
-
-  for (const target of targets.pageLinkTargets) {
-    const page = pageByUrl.get(target.url);
-    const existing = target.anchor.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="page-badge"]');
-    const badge = existing ?? document.createElement('span');
-    target.anchor.classList.add('lfd-page-link-with-badge');
-    badge.className = 'lfd-page-badge';
-    badge.setAttribute(DATA_ATTR, 'page-badge');
-    if (isSubdirectoryPage(page)) {
-      badge.classList.add('lfd-subdirectory-badge');
-      badge.textContent = t(language, 'content.subdirectory');
-    } else {
-      badge.classList.remove('lfd-subdirectory-badge');
-      badge.textContent = formatPercent(pageProgressPercent(page, progressByUrl.get(target.url)));
-    }
-    if (!existing) target.anchor.append(badge);
-  }
-}
-
-// 移除右侧阅读地图；关闭设置、页面无效或 tracker 停止时会调用。
-function removeReadingMap() {
-  document.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="reading-map"]')?.remove();
-}
-
-// 移除所有注入到文档页面里的阅读进度 UI。站点级总开关关闭时会调用。
-function removeProgressUi() {
-  document.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="total"]')?.remove();
-  document.querySelectorAll<HTMLElement>('[data-developer-docs-progress-tracker="page-badge"]').forEach((badge) => {
-    badge.closest('a')?.classList.remove('lfd-page-link-with-badge');
-    badge.remove();
-  });
-  removeReadingMap();
-}
-
-// 渲染右侧阅读地图：已读区间显示为绿色段，当前 viewport 显示为浅色浮层。
-function renderReadingMap(ranges: ViewedRange[], viewportRange: ViewedRange | null, contentHeight: number) {
-  if (!Number.isFinite(contentHeight) || contentHeight <= 0) {
-    removeReadingMap();
-    return;
-  }
-
-  injectStyles();
-
-  let map = document.querySelector<HTMLElement>('[data-developer-docs-progress-tracker="reading-map"]');
-  if (!map) {
-    map = document.createElement('div');
-    map.className = 'lfd-reading-map';
-    map.setAttribute(DATA_ATTR, 'reading-map');
-    map.setAttribute('aria-hidden', 'true');
-    document.documentElement.append(map);
-  }
-
-  const children: HTMLElement[] = [];
-  for (const segment of readingMapSegments(ranges, contentHeight)) {
-    const element = document.createElement('div');
-    element.className = 'lfd-reading-map-segment';
-    element.style.top = `${segment.top}%`;
-    element.style.height = `${segment.height}%`;
-    children.push(element);
-  }
-
-  const viewport = viewportMapSegment(viewportRange, contentHeight);
-  if (viewport) {
-    const element = document.createElement('div');
-    element.className = 'lfd-reading-map-viewport';
-    element.style.top = `${viewport.top}%`;
-    element.style.height = `${viewport.height}%`;
-    children.push(element);
-  }
-
-  // replaceChildren 让每次渲染都以当前 ranges 为准，避免旧段残留。
-  map.replaceChildren(...children);
-}
-
-async function collectIndexLinks(): Promise<IndexLinksResponse> {
-  // 创建索引的第一步：让当前页面的 adapter 展开左侧导航，并收集属于当前文档范围的链接。
-  const adapter = getAdapterForPage(location.href);
-  const scope = adapter?.getDocScope();
-  if (!adapter || !scope) throw new Error('Current page is not supported.');
-
-  await adapter.expandLazyNavigation();
-  // background 只需要 URL 和标题，DOM element 留在 content script 内部使用。
-  const links = adapter.getSidebarLinks().map((link) => ({ url: link.url, title: link.title }));
-  lfdDebug('collected index links in page', {
-    scope,
-    count: links.length,
-    links,
-  });
-  return {
-    ...scope,
-    links,
-  };
-}
-
-function getPageAdapterContext(): PageAdapterContext {
-  const adapter = getAdapterForPage(location.href);
-  const scope = adapter?.getDocScope();
-  if (!adapter || !scope) return { supported: false };
-
-  return {
-    supported: true,
-    host: scope.host,
-    scopeKey: scope.scopeKey,
-    scopeTitle: scope.scopeTitle,
-    adapterId: adapter.id,
-    adapterKind: adapter.kind ?? 'site',
-    frameworkName: scope.frameworkName ?? adapter.frameworkName,
-    indexable: adapter.isPageIndexable?.() ?? true,
-  };
-}
-
-async function runIndexMeasurement() {
-  // background 打开的测量 tab 会带索引 hash。这个模式只测正文高度并回传，
-  // 不启动阅读 tracker，避免“机器打开页面”被误认为用户阅读。
-  const startedAt = performance.now();
-  await afterHydration(INDEXING_HYDRATION_TIMEOUT_MS, INDEXING_IDLE_TIMEOUT_MS);
-  const afterHydrationMs = Math.round(performance.now() - startedAt);
-  const adapter = getAdapterForPage(location.href);
-  const indexable = adapter?.isPageIndexable?.() ?? true;
-  const article = adapter?.getArticleRoot();
-  lfdDebug('indexing measurement page loaded', {
-    url: location.href,
-    adapterFound: Boolean(adapter),
-    indexable,
-    articleFound: Boolean(article),
-  });
-  const measureStartedAt = performance.now();
-  const skippedReason = !adapter
-    ? 'adapter not found'
-    : indexable && !article
-      ? 'article not found'
-      : !indexable
-        ? 'page not indexable'
-        : undefined;
-  const payload = {
-    url: normalizePageUrl(location.href),
-    // 站点标题通常带站点后缀，这里去掉后缀，保留更适合作为页面标题的部分。
-    title: document.title.replace(/\s+[-–]\s+React$/, '').trim() || location.pathname,
-    contentHeight: !skippedReason && article ? Math.ceil(articleHeight(article)) : 0,
-    skippedReason,
-    timing: {
-      afterHydrationMs,
-      articleMeasureMs: Math.round(performance.now() - measureStartedAt),
-      navigationLoadMs: navigationLoadMs(),
-      resourceCount: resourceCount(),
-      topImageDurations: topImageDurations(),
-    },
-  };
-  try {
-    const response = await browser.runtime.sendMessage({
-      type: 'INDEX_PAGE_MEASURED',
-      payload,
-    } satisfies RuntimeMessage);
-    lfdDebug('indexing measurement message sent', { response });
-  } catch (error) {
-    const details = {
-      message: error instanceof Error ? error.message : String(error),
-    };
-    lfdDebug('indexing measurement message failed', details);
-  }
-}
-
-async function runReadingTracker(signal: AbortSignal, ownerId: string): Promise<ReadingTrackerStop | undefined> {
-  // 普通阅读模式的生命周期：定位正文 -> 采样可见区间 -> 合并到内存 -> 定期 flush 到 background。
-  // AbortSignal 用来在 SPA 路由切换或 content script 失效时停止旧 tracker。
-  const trackedUrl = normalizePageUrl(location.href);
-  const canContinue = () => shouldContinueTracking({
-    isActiveOwner: isReadingTrackerOwner(document.documentElement, ownerId),
-    trackedUrl,
-    currentUrl: normalizePageUrl(location.href),
-  });
-  const canFlush = (isFinalFlush: boolean) => shouldFlushTrackingProgress({
-    isActiveOwner: isReadingTrackerOwner(document.documentElement, ownerId),
-    isFinalFlush,
-    isSignalAborted: signal.aborted,
-    trackedUrl,
-    currentUrl: normalizePageUrl(location.href),
-  });
-  const initialScope = getAdapterForPage(location.href)?.getDocScope();
-  const prefetchedSiteId = initialScope ? siteIdFor(initialScope.host, initialScope.scopeKey) : undefined;
-  const prefetchedSiteSettings = prefetchedSiteId ? getSiteSettingsFromBackground(prefetchedSiteId) : undefined;
-
-  await afterHydration();
-  if (signal.aborted || !canContinue()) return undefined;
-
-  const adapter = getAdapterForPage(location.href);
-  const scope = adapter?.getDocScope();
-  const article = adapter?.getArticleRoot();
-  lfdDebug('reading tracker boot', {
-    url: location.href,
-    normalizedUrl: normalizePageUrl(location.href),
-    adapterFound: Boolean(adapter),
-    scope,
-    articleFound: Boolean(article),
-  });
-  if (!adapter || !scope || !article) return undefined;
-
-  const siteId = siteIdFor(scope.host, scope.scopeKey);
-  const siteSettingsPromise = shouldUsePrefetchedSiteSettings(prefetchedSiteId, siteId) && prefetchedSiteSettings
-    ? prefetchedSiteSettings
-    : getSiteSettingsFromBackground(siteId);
-  const pagePromise = getPageFromBackground(siteId, normalizePageUrl(location.href));
-  const [siteSettings, page] = await Promise.all([siteSettingsPromise, pagePromise]);
-  if (signal.aborted || !canContinue()) return undefined;
-
-  if (!shouldStartReadingTracker(siteSettings.readingProgressEnabled)) {
-    removeProgressUi();
-    lfdDebug('reading tracker skipped: site reading progress disabled', {
-      siteId,
-      url: normalizePageUrl(location.href),
-    });
-    return undefined;
-  }
-
-  if (!page) {
-    // 已支持但当前 URL 不在索引里时不注入 UI、不记录进度，避免污染未索引页面。
-    const pages = await getPagesFromBackground(siteId);
-    lfdDebug('reading tracker skipped: page not indexed', {
-      siteId,
-      currentUrl: normalizePageUrl(location.href),
-      indexedPageCount: pages.length,
-      indexedUrls: pages.map((item) => item.url),
-    });
-    return undefined;
-  }
-
-  if (isSubdirectoryPage(page)) {
-    removeReadingMap();
-    lfdDebug('reading tracker skipped: subdirectory placeholder page', {
-      siteId,
-      url: page.url,
-      contentHeight: page.contentHeight,
-    });
-    return undefined;
-  }
-
-  const [sitePages, siteProgress] = await Promise.all([
-    getPagesFromBackground(siteId),
-    getProgressForSiteFromBackground(siteId),
-  ]);
-  if (signal.aborted || !canContinue()) return undefined;
-
-  let uiSnapshot: ProgressUiSnapshot = {
-    pages: sitePages,
-    progress: siteProgress,
-  };
-  let settings = await getAppSettingsFromBackground();
-  if (signal.aborted || !canContinue()) return undefined;
-
-  // tracker 启动时先恢复历史 ranges，后续滚动只在内存里合并，定期 flush。
-  let ranges = mergeRanges(siteProgress.find((entry) => entry.url === page.url)?.viewedRanges ?? []);
-  let dirty = false;
-  let renderTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-  lfdDebug('reading tracker started', {
-    siteId,
-    url: page.url,
-    contentHeight: page.contentHeight,
-    initialRanges: ranges,
-  });
-
-  const sample = () => {
-    if (signal.aborted || !canContinue()) return;
-
-    const visible = visibleRange(article);
-    const range = visible
-      ? completeRangeAtPageEnd(visible, isArticleScrolledToEnd(article), page.contentHeight)
-      : null;
-    if (!range) {
-      renderReadingMapIfEnabled(null);
-      lfdTrace('reading sample skipped: article outside viewport', {
-        articleRect: article.getBoundingClientRect().toJSON?.() ?? null,
-      });
-      return;
-    }
-    const nextRanges = addViewedRange(ranges, range);
-    if (JSON.stringify(nextRanges) !== JSON.stringify(ranges)) {
-      // 只有真正新增已读区间时才标记 dirty，重复看同一区域不会触发保存。
-      ranges = nextRanges;
-      dirty = true;
-      lfdTrace('reading sample recorded', {
-        range,
-        ranges,
-        url: page.url,
-      });
-      uiSnapshot = {
-        pages: uiSnapshot.pages,
-        progress: [
-          ...uiSnapshot.progress.filter((entry) => entry.url !== page.url),
-          {
-            siteId,
-            url: page.url,
-            viewedRanges: ranges,
-            viewedHeight: viewedHeight(ranges, page.contentHeight),
-            updatedAt: Date.now(),
-          },
-        ],
-      };
-      scheduleRenderUi();
-    }
-    renderReadingMapIfEnabled(range);
-  };
-
-  // 页面内导航可能被 react.dev 重新渲染；renderUi 用快照重建注入节点。
-  const renderUi = () => renderProgressUi(siteId, settings.language, uiSnapshot);
-  const renderReadingMapIfEnabled = (range: ViewedRange | null) => {
-    if (!settings.showReadingMap) {
-      removeReadingMap();
-      return;
-    }
-    renderReadingMap(ranges, range, page.contentHeight);
-  };
-  const renderPageChrome = async () => {
-    if (signal.aborted || !canContinue()) return;
-    await renderUi();
-    renderReadingMapIfEnabled(visibleRange(article));
-  };
-  const scheduleRenderUi = () => {
-    if (signal.aborted || !canContinue() || renderTimer) return;
-    // 防抖 MutationObserver 的高频触发，避免页面重渲染时频繁刷新扩展 UI。
-    renderTimer = globalThis.setTimeout(() => {
-      renderTimer = undefined;
-      void renderPageChrome();
-    }, 300);
-  };
-
-  const flush = async (render = true, isFinalFlush = false) => {
-    if (!canFlush(isFinalFlush)) return;
-    // dirty=false 时不发消息；只有新增可见区间后才保存，类似后端里的“脏写回”策略。
-    if (!dirty) {
-      lfdTrace('reading flush skipped: no dirty ranges', { url: page.url });
-      return;
-    }
-    dirty = false;
-    const record = await saveProgressToBackground(siteId, page.url, ranges, page.contentHeight);
-    lfdDebug('reading progress saved', {
-      siteId,
-      url: page.url,
-      viewedHeight: record.viewedHeight,
-      contentHeight: page.contentHeight,
-      ranges: record.viewedRanges,
-    });
-    uiSnapshot = {
-      pages: uiSnapshot.pages,
-      progress: [
-        ...uiSnapshot.progress.filter((entry) => entry.url !== record.url),
-        record,
-      ],
-    };
-    // 保存后同步更新内存快照，后续 UI 刷新不用再向 background 拉全量 progress。
-    if (render && !signal.aborted && canContinue()) await renderPageChrome();
-  };
-
-  // 启动时立即采样一次，确保打开页面时已经可见的正文会被记录。
-  sample();
-  await flush();
-  if (signal.aborted || !canContinue()) return undefined;
-
-  await renderPageChrome();
-
-  const scrollTargets = new Set<EventTarget>([window, document, ...scrollableAncestors(article)]);
-  scrollTargets.forEach((target) => {
-    target.addEventListener('scroll', sample, { passive: true, capture: target === document, signal });
-  });
-  window.addEventListener('resize', sample, { passive: true, signal });
-  const flushInterval = globalThis.setInterval(() => void flush(), FLUSH_INTERVAL_MS);
-  document.addEventListener('visibilitychange', () => {
-    // 标签页切到后台前尽量保存，减少用户关闭页面时丢进度的概率。
-    if (document.visibilityState === 'hidden') void flush();
-  }, { signal });
-  window.addEventListener('pagehide', () => void flush(false), { signal });
-  const onSettingsChanged = (
-    changes: Record<string, chrome.storage.StorageChange>,
-    areaName: string,
-  ) => {
-    if (areaName !== 'local' || !changes[APP_SETTINGS_STORAGE_KEY]) return;
-    // options 页面切换设置后，content script 可即时响应，不需要刷新页面。
-    settings = normalizeAppSettings(changes[APP_SETTINGS_STORAGE_KEY].newValue);
-    if (canContinue()) void renderPageChrome();
-  };
-  browser.storage.onChanged.addListener(onSettingsChanged);
-
-  // react.dev 是 React 应用，左侧导航可能被重建；监听 DOM 变化后恢复扩展注入的节点。
-  const observer = new MutationObserver(scheduleRenderUi);
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  // 返回 stop 函数给外层，用于 SPA 路由切换或 content script 失效时清理事件和保存进度。
-  return async () => {
-    globalThis.clearInterval(flushInterval);
-    if (renderTimer) globalThis.clearTimeout(renderTimer);
-    observer.disconnect();
-    browser.storage.onChanged.removeListener(onSettingsChanged);
-    if (!isReadingTrackerOwner(document.documentElement, ownerId)) return;
-    await flush(false, true);
-    removeProgressUi();
-  };
 }
 
 export default defineContentScript({
@@ -718,93 +46,232 @@ export default defineContentScript({
   ],
   runAt: 'document_end',
   async main(ctx) {
-    // content script 入口。WXT 会在匹配的页面注入它，但实际是否处理仍由 adapter 决定。
+    const root = document.documentElement;
+    if (root.hasAttribute(CONTENT_SCRIPT_BOOTING_ATTR) || root.hasAttribute(CONTENT_SCRIPT_READY_ATTR)) {
+      lfdDebug('content script startup skipped: instance already active', {
+        url: location.href,
+        booting: root.hasAttribute(CONTENT_SCRIPT_BOOTING_ATTR),
+        ready: root.hasAttribute(CONTENT_SCRIPT_READY_ATTR),
+      });
+      return;
+    }
+    root.setAttribute(CONTENT_SCRIPT_BOOTING_ATTR, 'true');
 
-    const ownerId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    claimReadingTrackerOwner(document.documentElement, ownerId);
+    const injectionSource = document.documentElement.getAttribute(INJECTION_SOURCE_ATTR) ?? 'manifest-or-unknown';
     let activeTracker: { controller: AbortController; stop: ReadingTrackerStop } | undefined;
+    let activeTrackedUrl: string | undefined;
+    let ready = false;
+    let observedHref = location.href;
+    // routeVersion 用来丢弃过期的异步 startTracking 结果，避免慢启动的旧页面 tracker 覆盖新页面。
     let routeVersion = 0;
 
+    // 当前页面所属的站点范围 ID，用来判断 background 推送的站点设置是否影响当前页面。
     const currentSiteId = () => {
       const scope = getAdapterForPage(location.href)?.getDocScope();
       return scope ? siteIdFor(scope.host, scope.scopeKey) : undefined;
     };
 
-    const stopTracking = async () => {
-      // 停止当前阅读 tracker：中断事件监听、flush 未保存进度、移除页面内 UI。
+    // 停止当前阅读 tracker：中断事件监听、触发 tracker 自己的最终 flush。
+    const stopTracking = async (options: { removeUi?: boolean } = {}) => {
       const tracker = activeTracker;
       activeTracker = undefined;
+      activeTrackedUrl = undefined;
       if (!tracker) return;
       tracker.controller.abort();
-      await tracker.stop();
+      await tracker.stop(options);
     };
 
-    const startTracking = async (reason: string) => {
-      // React Docs 是 SPA：左侧导航跳转不会重新加载 content script。
-      // routeVersion 用来丢弃已经过期的异步启动结果，避免旧页面 tracker 覆盖新页面。
-      const version = ++routeVersion;
-      await stopTracking();
+    // 单页记录开关用于“浏览时先不记录，真正阅读时再开启”的场景。
+    // 这里只解析当前页面是否应该展示开关及其状态；开关状态只控制记录写入，不隐藏现有进度 UI。
+    const resolvePageProgressToggle = async () => {
+      if (isIndexingUrl(location.href)) return undefined;
+      if (!await canRunReadingFeatures()) return undefined;
+      await afterHydration();
+      const adapter = getAdapterForPage(location.href);
+      const scope = adapter?.getDocScope();
+      if (!adapter || !scope) return undefined;
 
+      const siteId = siteIdFor(scope.host, scope.scopeKey);
+      const url = normalizePageUrl(location.href);
+      const [appSettings, siteSettings, pageSettings, page] = await Promise.all([
+        getAppSettingsFromBackground(),
+        getSiteSettingsFromBackground(siteId),
+        getPageSettingsFromBackground(siteId, url),
+        getPageFromBackground(siteId, url),
+      ]);
+      if (!page || isSubdirectoryPage(page) || siteSettings.readingProgressEnabled === false) return undefined;
+
+      return {
+        siteId,
+        url,
+        language: appSettings.language,
+        enabled: shouldStartReadingTracker({
+          siteReadingProgressEnabled: siteSettings.readingProgressEnabled,
+          pageReadingProgressEnabled: pageSettings.readingProgressEnabled,
+          defaultPageReadingProgressEnabled: appSettings.defaultPageReadingProgressEnabled,
+        }),
+      };
+    };
+
+    // 渲染/刷新当前页的记录开关，并把点击结果持久化到 pageSettings。
+    // 保存后强制重启 tracker，让 tracker 内部的 recordingEnabled 读取到最新设置。
+    const refreshPageProgressToggle = async () => {
+      const version = routeVersion;
+      const state = await resolvePageProgressToggle();
+      if (version !== routeVersion) return;
+      if (!state) {
+        removePageProgressToggle();
+        return;
+      }
+      renderPageProgressToggle(state, (enabled) => {
+        void (async () => {
+          await savePageSettingsToBackground(state.siteId, state.url, { readingProgressEnabled: enabled });
+          await startTracking('page-progress-toggle-changed', { forceRefresh: true });
+          await refreshPageProgressToggle();
+        })();
+      });
+    };
+
+    // 为当前 URL 启动阅读 tracker。
+    // 这个函数会先停掉旧 tracker，再按当前页面状态决定是否真的启动新 tracker。
+    const startTracking = async (reason: string, options: { forceRefresh?: boolean } = {}) => {
+      const nextTrackedUrl = normalizePageUrl(location.href);
+      // 这段逻辑是为了优化部分文档，在同一个页面，经过不同锚点的时候，页面url发生变化的情况，因为url后面带着#hash锚点的名字，这种情况不希望重启 tracker。因为重启tracker会卸载ui然后重新加载ui，导致页面重新渲染，发生闪烁效果，体验不好。
+      // activeTrackedUrl 只有在 tracker 成功启动后才赋值，所以首次启动时它是 undefined；
+      // 这时 activeTracker 也为空，shouldRestartTrackingForUrl 会允许启动。
+      // 例如：
+      // - 首次打开 /tutorial/body/#without-pydantic：
+      //   activeTracker=false，activeTrackedUrl=undefined -> 启动 tracker。
+      // - 滚动到 /tutorial/body/#editor-support：
+      //   activeTracker=true，activeTrackedUrl 和 nextTrackedUrl 都是去掉 hash 后的 /tutorial/body/ -> 跳过重启。
+      // - 索引完成或站点设置重新启用：
+      //   forceRefresh=true -> 即使 normalized URL 没变，也强制重启以刷新页面索引/设置状态。
+      if (!shouldRestartTrackingForUrl({
+        activeTrackedUrl,
+        forceRefresh: options.forceRefresh === true,
+        hasActiveTracker: Boolean(activeTracker),
+        nextTrackedUrl,
+      })) return;
+
+      const version = ++routeVersion;
+      await stopTracking({ removeUi: false });
+
+      // background 打开的索引测量页只做正文高度测量，不记录用户阅读进度。
       if (isIndexingUrl(location.href)) return;
       if (!await canRunReadingFeatures()) return;
+      const pageProgressState = await resolvePageProgressToggle();
+      if (!pageProgressState) {
+        removePageProgressToggle();
+        return;
+      }
 
+      // 即使当前页记录开关是关闭的，也仍然启动 tracker。
+      // tracker 会继续渲染总进度/badge/reading map，只是在采样时跳过当前页进度写入。
       lfdDebug('reading tracker route start requested', {
         reason,
         url: location.href,
         normalizedUrl: normalizePageUrl(location.href),
-        ownerId,
+        injectionSource,
       });
 
       const controller = new AbortController();
-      const stop = await runReadingTracker(controller.signal, ownerId);
+      const stop = await runReadingTracker(controller.signal);
       if (!stop) return;
 
+      // 启动期间如果 SPA 又跳到新 URL，这个 tracker 已经过期，立即清理。
       if (version !== routeVersion || controller.signal.aborted) {
-        // 启动过程中如果路由又变了，立即停止这个过期 tracker。
         controller.abort();
         await stop();
         return;
       }
 
       activeTracker = { controller, stop };
+      activeTrackedUrl = nextTrackedUrl;
+      await refreshPageProgressToggle();
     };
 
-    browser.runtime.onMessage.addListener((message: RuntimeMessage) => {
-      if (message.type === 'GET_PAGE_ADAPTER_CONTEXT') return getPageAdapterContext();
-      // background.startIndex 使用：创建索引前收集当前页面左侧导航链接。
-      if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
-      // background 保存索引后通知原页面刷新 tracker。
-      if (message.type === 'INDEX_PROGRESS_UPDATED') return startTracking('index-progress-updated');
-      if (message.type === 'SITE_SETTINGS_UPDATED' && message.siteId === currentSiteId()) {
-        if (message.settings.readingProgressEnabled) return startTracking('site-settings-enabled');
-        return stopTracking().then(removeProgressUi);
+    const markReady = () => {
+      ready = true;
+      root.setAttribute(CONTENT_SCRIPT_READY_ATTR, 'true');
+      root.removeAttribute(CONTENT_SCRIPT_BOOTING_ATTR);
+      root.removeAttribute(CONTENT_SCRIPT_PENDING_ATTR);
+    };
+
+    const handleObservedLocationChange = (reason: string) => {
+      if (location.href === observedHref) return;
+      observedHref = location.href;
+      void startTracking(reason);
+    };
+
+    try {
+      // 响应 popup/options/background 发给当前 tab 的消息。
+      // 入口层只做分发，具体索引、adapter context、阅读 UI 逻辑都在 src/content/* 模块里。
+      const onRuntimeMessage = (message: RuntimeMessage) => {
+        if (message.type === 'GET_PAGE_ADAPTER_CONTEXT') return getPageAdapterContext();
+        if (message.type === 'COLLECT_INDEX_LINKS') return collectIndexLinks();
+        if (message.type === 'INDEX_PROGRESS_UPDATED') {
+          return refreshPageProgressToggle().then(() => startTracking('index-progress-updated', { forceRefresh: true }));
+        }
+        if (message.type === 'SITE_SETTINGS_UPDATED' && message.siteId === currentSiteId()) {
+          if (message.settings.readingProgressEnabled) {
+            return refreshPageProgressToggle().then(() => startTracking('site-settings-enabled', { forceRefresh: true }));
+          }
+          return stopTracking().then(removeProgressUi).then(removePageProgressToggle);
+        }
+        return undefined;
+      };
+      browser.runtime.onMessage.addListener(onRuntimeMessage);
+      const onStorageChanged = (
+        changes: Record<string, chrome.storage.StorageChange>,
+        areaName: string,
+      ) => {
+        if (areaName !== 'local' || !changes[APP_SETTINGS_STORAGE_KEY]) return;
+        // 全局默认记录开关变更后，当前页可能从“默认记录”变为“默认暂停”，需要刷新按钮和 tracker。
+        void refreshPageProgressToggle().then(() => startTracking('app-settings-updated', { forceRefresh: true }));
+      };
+      browser.storage.onChanged.addListener(onStorageChanged);
+
+      // WXT 会在 history navigation 时触发这个事件；React/Docusaurus 这类 SPA 不会重新注入 content script。
+      ctx.addEventListener(window, 'wxt:locationchange', () => {
+        handleObservedLocationChange('locationchange');
+      });
+      // 有些站点首次 SPA 跳转可能漏掉 WXT 的 locationchange；轮询 URL 作为兜底，不依赖重复注入。
+      const locationPoll = globalThis.setInterval(() => handleObservedLocationChange('location-poll'), 500);
+      ctx.addEventListener(document, 'visibilitychange', () => {
+        // 后台标签页首次注入时正文可能还不可用，切回可见后补一次启动。
+        if (shouldStartTrackingOnVisibilityChange(document.visibilityState, Boolean(activeTracker))) {
+          void startTracking('visibilitychange');
+        }
+      });
+      ctx.onInvalidated(() => {
+        // 扩展热更新、content script 失效或页面卸载前清理入口监听，并尽量停止 tracker。
+        root.removeAttribute(CONTENT_SCRIPT_READY_ATTR);
+        root.removeAttribute(CONTENT_SCRIPT_BOOTING_ATTR);
+        root.removeAttribute(CONTENT_SCRIPT_PENDING_ATTR);
+        globalThis.clearInterval(locationPoll);
+        browser.runtime.onMessage.removeListener(onRuntimeMessage);
+        browser.storage.onChanged.removeListener(onStorageChanged);
+        removePageProgressToggle();
+        void stopTracking();
+      });
+
+      if (isIndexingUrl(location.href)) {
+        // 索引测量模式由 background 打开的临时 tab 触发，只回传正文高度和诊断信息。
+        await runIndexMeasurement();
+        markReady();
+        return;
       }
-      return undefined;
-    });
 
-    ctx.addEventListener(window, 'wxt:locationchange', () => {
-      // react.dev 是 SPA，左侧导航跳转不会重新注入 content script，需要手动重启 tracker。
-      void startTracking('locationchange');
-    });
-    ctx.addEventListener(document, 'visibilitychange', () => {
-      // 后台标签页首次注入时可能还没有可用正文，变为可见后补一次启动。
-      if (shouldStartTrackingOnVisibilityChange(document.visibilityState, Boolean(activeTracker))) {
-        void startTracking('visibilitychange');
+      // 普通阅读模式：页面满足运行条件时启动 tracker；否则保持 content script 空运行。
+      if (await canRunReadingFeatures()) {
+        // 先渲染单页开关，避免全局默认关闭时用户看不到开启入口。
+        await refreshPageProgressToggle();
+        await startTracking('initial-load');
       }
-    });
-    ctx.onInvalidated(() => {
-      // 扩展热更新、页面卸载等场景下清理当前 tracker。
-      void stopTracking();
-    });
-
-    if (isIndexingUrl(location.href)) {
-      // background 打开的临时测量页只走索引测量流程，不记录阅读进度。
-      await runIndexMeasurement();
-      return;
-    }
-
-    if (await canRunReadingFeatures()) {
-      await startTracking('initial-load');
+      markReady();
+    } catch (error) {
+      if (!ready) root.removeAttribute(CONTENT_SCRIPT_BOOTING_ATTR);
+      throw error;
     }
   },
 });

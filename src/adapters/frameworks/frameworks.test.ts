@@ -1,4 +1,5 @@
 import { FrameworkAdapters } from '.';
+import { createFrameworkAdapter } from './common';
 
 const cases = [
   {
@@ -82,9 +83,26 @@ const cases = [
       <main class="md-main"><article class="md-content__inner">Material article</article></main>
     `,
   },
+  {
+    id: 'framework-retype',
+    frameworkName: 'Retype',
+    url: 'https://react.dev/usage/',
+    html: `
+      <aside id="retype-sidebar-left">
+        <a href="/">What is SillyTavern?</a>
+        <a href="/installation/">Installation</a>
+      </aside>
+      <main id="retype-content">Retype article</main>
+      <meta name="generator" content="Retype 4.5.3">
+    `,
+  },
 ];
 
 describe('framework adapters', () => {
+  afterEach(() => {
+    jsdom.reconfigure({ url: 'https://react.dev/learn' });
+  });
+
   for (const item of cases) {
     it(`detects ${item.frameworkName} and exposes index targets`, () => {
       history.replaceState(null, '', item.url);
@@ -108,6 +126,24 @@ describe('framework adapters', () => {
     const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-nextra');
 
     expect(adapter?.detect?.()).toBeNull();
+  });
+
+  it('enables stable initial article only for Typer Material MkDocs pages', () => {
+    document.body.innerHTML = `
+      <div class="md-sidebar md-sidebar--primary">
+        <nav class="md-nav">
+          <a class="md-nav__link" href="/tutorial/">Tutorial</a>
+        </nav>
+      </div>
+      <main class="md-main"><article class="md-content__inner">Material article</article></main>
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-material-mkdocs');
+
+    jsdom.reconfigure({ url: 'https://typer.tiangolo.com/tutorial/' });
+    expect(adapter?.requiresStableInitialArticle).toBe(true);
+
+    jsdom.reconfigure({ url: 'https://fastapi.tiangolo.com/tutorial/' });
+    expect(adapter?.requiresStableInitialArticle).toBeUndefined();
   });
 
   it('detects the current Nextra docs DOM', () => {
@@ -184,6 +220,143 @@ describe('framework adapters', () => {
     ]);
   });
 
+  it('collects Fumadocs child pages from Next flight data only for configured sites', () => {
+    history.replaceState(null, '', 'https://react.dev/docs/ui');
+    document.body.innerHTML = `
+      <aside id="nd-sidebar" data-fumadocs-sidebar class="[grid-area:sidebar]">
+        <a href="/">Fumadocs</a>
+        <a href="/docs/ui">Overview</a>
+        <a href="/docs/ui/component-library">Component Library</a>
+        <div data-state="closed">
+          <a href="/docs/ui/components">Components</a>
+          <div data-state="closed" hidden></div>
+        </div>
+        <div data-state="closed">
+          <a href="/docs/ui/layouts">Layouts</a>
+          <div data-state="closed" hidden></div>
+        </div>
+      </aside>
+      <main><article>Fumadocs article</article></main>
+      <script>
+        self.__next_f.push([1, "{\\"type\\":\\"page\\",\\"name\\":\\"Auto Type Table\\",\\"description\\":\\"Auto-generated type table\\",\\"url\\":\\"/docs/ui/components/auto-type-table\\"},{\\"type\\":\\"page\\",\\"name\\":\\"Root Guide\\",\\"url\\":\\"/docs/what-is-fumadocs\\"}"]);
+      </script>
+    `;
+    const adapter = createFrameworkAdapter({
+      id: 'framework-test-fumadocs',
+      frameworkName: 'Fumadocs',
+      sidebarSelectors: ['[data-fumadocs-sidebar]'],
+      articleSelectors: ['main article'],
+      signatureSelectors: ['[data-fumadocs-sidebar]'],
+      siteOverrides: [
+        {
+          host: 'react.dev',
+          pathPrefix: '/docs/ui',
+          includeNextFlightPageLinks: true,
+        },
+      ],
+    });
+
+    expect(adapter?.getSidebarLinks().map((link) => [link.url, link.title])).toContainEqual([
+      'https://react.dev/docs/ui/components/auto-type-table',
+      'Auto Type Table',
+    ]);
+    expect(adapter?.getSidebarLinks().map((link) => link.url)).not.toContain('https://react.dev/docs/what-is-fumadocs');
+  });
+
+  it('does not collect Fumadocs Next flight links for other Fumadocs-compatible sites', () => {
+    history.replaceState(null, '', 'https://react.dev/docs/other');
+    document.body.innerHTML = `
+      <aside id="nd-sidebar" data-fumadocs-sidebar class="[grid-area:sidebar]">
+        <a href="/docs/other">Overview</a>
+      </aside>
+      <main><article>Fumadocs article</article></main>
+      <script>
+        self.__next_f.push([1, "{\\"type\\":\\"page\\",\\"name\\":\\"Nested Page\\",\\"url\\":\\"/docs/other/nested\\"}"]);
+      </script>
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-fumadocs');
+
+    expect(adapter?.getSidebarLinks().map((link) => link.url)).toEqual([
+      'https://react.dev/docs/other',
+    ]);
+  });
+
+  it('allows configured sites to override framework indexing load wait', () => {
+    const adapter = createFrameworkAdapter({
+      id: 'framework-test',
+      frameworkName: 'Test Docs',
+      requiresIndexingLoadWait: true,
+      sidebarSelectors: ['nav'],
+      articleSelectors: ['article'],
+      signatureSelectors: ['nav'],
+      siteOverrides: [
+        {
+          host: 'react.dev',
+          pathPrefix: '/fast',
+          requiresIndexingLoadWait: false,
+        },
+      ],
+    });
+    document.body.innerHTML = `
+      <nav><a href="/docs">Docs</a></nav>
+      <article>Test article</article>
+    `;
+
+    history.replaceState(null, '', 'https://react.dev/slow');
+    expect(adapter.requiresIndexingLoadWait).toBe(true);
+
+    history.replaceState(null, '', 'https://react.dev/fast');
+    expect(adapter.requiresIndexingLoadWait).toBe(false);
+  });
+
+  it('treats Retype navigation containing the home page as one root scope', () => {
+    history.replaceState(null, '', 'https://react.dev/usage/');
+    document.body.innerHTML = `
+      <aside id="retype-sidebar-left">
+        <a href="/">What is SillyTavern?</a>
+        <a href="/usage/">Usage</a>
+        <a href="/installation/">Installation</a>
+      </aside>
+      <main id="retype-content">Usage article</main>
+      <meta name="generator" content="Retype 4.5.3">
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-retype');
+
+    expect(adapter?.getDocScope()).toEqual({
+      host: 'react.dev',
+      scopeKey: 'root',
+      scopeTitle: 'Retype Docs',
+      frameworkName: 'Retype',
+    });
+    expect(adapter?.requiresIndexingLoadWait).toBe(true);
+  });
+
+  it('inserts Retype total progress within the SimpleBar scroll content below its filter', () => {
+    history.replaceState(null, '', 'https://react.dev/usage/');
+    document.body.innerHTML = `
+      <aside id="retype-sidebar-left">
+        <div class="absolute top-0 left-0 right-0 h-16"><input type="text"></div>
+        <ul class="overflow-y-auto flex-1 pl-3 md:mt-16 simplebar-scrollable-y">
+          <div class="simplebar-wrapper">
+            <div class="simplebar-content-wrapper">
+              <div class="simplebar-content">
+                <li><a href="/">What is SillyTavern?</a></li>
+                <li><a href="/usage/">Usage</a></li>
+              </div>
+            </div>
+          </div>
+        </ul>
+      </aside>
+      <main id="retype-content">Usage article</main>
+      <meta name="generator" content="Retype 4.5.3">
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-retype');
+    const targets = adapter?.getProgressInsertionTargets();
+
+    expect(targets?.sidebarRoot).toBe(document.querySelector('#retype-sidebar-left .simplebar-content'));
+    expect(targets?.totalProgressBefore).toBe(document.querySelector('#retype-sidebar-left .simplebar-content li'));
+  });
+
   it('inserts Starlight total progress inside the sidebar content container', () => {
     history.replaceState(null, '', 'https://react.dev/docs/getting-started');
     document.body.innerHTML = `
@@ -204,6 +377,46 @@ describe('framework adapters', () => {
 
     expect(targets?.sidebarRoot).toBe(document.querySelector('.sidebar-content'));
     expect(targets?.totalProgressBefore).toBe(document.querySelector('.sidebar-content h2'));
+  });
+
+  it('inserts VitePress total progress inside sidebar nav below its curtain overlay', () => {
+    jsdom.reconfigure({ url: 'https://vitepress.dev/guide/getting-started' });
+    document.body.innerHTML = `
+      <aside class="VPSidebar">
+        <div class="curtain"></div>
+        <nav class="nav" id="VPSidebarNav" aria-labelledby="sidebar-aria-label">
+          <span class="visually-hidden" id="sidebar-aria-label">Sidebar Navigation</span>
+          <section class="VPSidebarItem">
+            <a class="VPLink" href="/guide/what-is-vitepress">What is VitePress?</a>
+            <a class="VPLink" href="/guide/getting-started">Getting Started</a>
+          </section>
+        </nav>
+      </aside>
+      <main class="VPDoc"><article>VitePress article</article></main>
+      <div class="VPNav"></div>
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-vitepress');
+    const targets = adapter?.getProgressInsertionTargets();
+
+    expect(targets?.sidebarRoot).toBe(document.querySelector('#VPSidebarNav'));
+    expect(targets?.totalProgressBefore).toBe(document.querySelector('#VPSidebarNav .visually-hidden'));
+  });
+
+  it('waits for Netlify Starlight pages to load before measuring indexing height', () => {
+    jsdom.reconfigure({ url: 'https://docs.netlify.com/deploy/deploy-overview/' });
+    document.body.innerHTML = `
+      <nav class="sidebar" aria-label="Main">
+        <a href="/deploy/deploy-overview/">Deploy overview</a>
+      </nav>
+      <main><div class="sl-markdown-content">Starlight article</div></main>
+      <meta name="generator" content="Astro v5">
+    `;
+    const adapter = FrameworkAdapters.find((candidate) => candidate.id === 'framework-starlight');
+
+    expect(adapter?.requiresIndexingLoadWait).toBe(true);
+
+    jsdom.reconfigure({ url: 'https://example.com/deploy/deploy-overview/' });
+    expect(adapter?.requiresIndexingLoadWait).toBeUndefined();
   });
 
   it('uses a visible duplicate sidebar link as the progress insertion target', () => {

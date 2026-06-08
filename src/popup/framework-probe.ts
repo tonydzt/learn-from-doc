@@ -32,6 +32,7 @@ export function probePageAdapterContext(): PageAdapterContext {
       .map((anchor) => new URL(anchor.href, location.href))
       .filter((url) => url.hostname === host)
       .map((url) => url.pathname);
+    if (paths.includes('/')) return 'root';
     const prefix = commonPathPrefix(paths);
     return pathSegments(prefix)[0] ?? pathSegments(location.pathname)[0] ?? 'root';
   };
@@ -71,6 +72,12 @@ export function probePageAdapterContext(): PageAdapterContext {
       sidebarSelectors: ['.md-sidebar--primary .md-nav', '.md-sidebar--primary', 'nav.md-nav'],
       articleSelectors: ['.md-content__inner', '.md-content article', '.md-main__inner .md-content'],
       signatureSelectors: ['.md-sidebar--primary', '.md-nav', '.md-content', '.md-main__inner'],
+    },
+    {
+      frameworkName: 'Retype',
+      sidebarSelectors: ['#retype-sidebar-left'],
+      articleSelectors: ['#retype-content'],
+      signatureSelectors: ['meta[name="generator"][content*="Retype"]'],
     },
   ];
 
