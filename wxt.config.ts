@@ -7,7 +7,7 @@ export default defineConfig({
   manifest: ({ browser }) => ({
     name: 'Developer Docs Progress Tracker',
     description: 'Save and restore reading progress on developer documentation and long technical pages.',
-    version: '0.1.0',
+    version: '0.2.0',
     permissions: ['activeTab', 'tabs', 'storage', 'scripting'],
     host_permissions: [
       'https://react.dev/*',
