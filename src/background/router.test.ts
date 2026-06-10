@@ -49,4 +49,30 @@ describe('background message router', () => {
     expect(router({ type: 'GET_APP_SETTINGS' }, sender, testContext())).toBeUndefined();
     expect(calls).toEqual([]);
   });
+
+  it('can route account message types', () => {
+    const calls: string[] = [];
+    const handler: BackgroundHandler = (message) => {
+      calls.push(message.type);
+      return { ok: true };
+    };
+
+    const router = createMessageRouter({
+      GET_ACCOUNT_SESSION: handler,
+      LOGIN_ACCOUNT: handler,
+      LOGOUT_ACCOUNT: handler,
+      REFRESH_ACCOUNT_PERMISSIONS: handler,
+    });
+
+    expect(router({ type: 'GET_ACCOUNT_SESSION' }, sender, testContext())).toEqual({ ok: true });
+    expect(router({ type: 'LOGIN_ACCOUNT', email: 'reader@example.com', password: 'secret' }, sender, testContext())).toEqual({ ok: true });
+    expect(router({ type: 'LOGOUT_ACCOUNT' }, sender, testContext())).toEqual({ ok: true });
+    expect(router({ type: 'REFRESH_ACCOUNT_PERMISSIONS' }, sender, testContext())).toEqual({ ok: true });
+    expect(calls).toEqual([
+      'GET_ACCOUNT_SESSION',
+      'LOGIN_ACCOUNT',
+      'LOGOUT_ACCOUNT',
+      'REFRESH_ACCOUNT_PERMISSIONS',
+    ]);
+  });
 });

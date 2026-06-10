@@ -2,6 +2,7 @@ import React from 'react';
 import { browser } from 'wxt/browser';
 import { t } from '../../../src/i18n/messages';
 import type { AppSettings } from '../../../src/settings/app-settings';
+import type { AccountSession } from '../../../src/settings/account-session';
 import type { SiteSettings } from '../../../src/settings/site-settings';
 import type {
   IndexOverview,
@@ -15,6 +16,7 @@ import { parsePortableData, portableSerializedBlobPart } from '../../../src/stor
 import { OptionsShell } from './components/OptionsShell';
 import type { DetailTab, ManagerState, PageKey } from './types';
 import { SettingsPage } from './pages/SettingsPage';
+import { AccountPage } from './pages/AccountPage';
 import { SiteDetailPage } from './pages/SiteDetailPage';
 import { SitesPage } from './pages/SitesPage';
 
@@ -23,6 +25,8 @@ export function OptionsApp() {
   const initialPage: PageKey = requestedSiteId ? 'siteDetail' : 'sites';
   const [state, setState] = React.useState<ManagerState>({ status: 'loading' });
   const [includePortableProgress, setIncludePortableProgress] = React.useState(false);
+  const [accountBusy, setAccountBusy] = React.useState(false);
+  const [accountError, setAccountError] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async (
@@ -34,9 +38,10 @@ export function OptionsApp() {
     // 一次加载索引概览、设置，以及当前选中站点的完整快照。
     setState({ status: 'loading' });
     try {
-      const [overviews, settings] = await Promise.all([
+      const [overviews, settings, accountSession] = await Promise.all([
         browser.runtime.sendMessage({ type: 'GET_INDEX_OVERVIEWS' } satisfies RuntimeMessage) as Promise<IndexOverview[]>,
         browser.runtime.sendMessage({ type: 'GET_APP_SETTINGS' } satisfies RuntimeMessage) as Promise<AppSettings>,
+        browser.runtime.sendMessage({ type: 'GET_ACCOUNT_SESSION' } satisfies RuntimeMessage) as Promise<AccountSession | null>,
       ]);
       const selectedSiteId = page === 'siteDetail' ? siteId ?? requestedSiteId ?? overviews[0]?.site.siteId : undefined;
       const selected = selectedSiteId
@@ -45,7 +50,7 @@ export function OptionsApp() {
       const siteSettings = selected
         ? await browser.runtime.sendMessage({ type: 'GET_SITE_SETTINGS', siteId: selected.site.siteId } satisfies RuntimeMessage) as SiteSettings
         : undefined;
-      setState({ status: 'ready', page, detailTab, overviews, selected, siteSettings, settings });
+      setState({ status: 'ready', page, detailTab, overviews, selected, siteSettings, settings, accountSession });
     } catch (error) {
       setState({
         status: 'error',
@@ -74,6 +79,53 @@ export function OptionsApp() {
     if (state.status !== 'ready') return;
     const next = await browser.runtime.sendMessage({ type: 'SAVE_APP_SETTINGS', settings } satisfies RuntimeMessage) as AppSettings;
     setState({ ...state, settings: next });
+  };
+
+  const loginAccount = async (email: string, password: string) => {
+    if (state.status !== 'ready') return;
+    setAccountBusy(true);
+    setAccountError(null);
+    try {
+      const accountSession = await browser.runtime.sendMessage({
+        type: 'LOGIN_ACCOUNT',
+        email,
+        password,
+      } satisfies RuntimeMessage) as AccountSession;
+      setState({ ...state, accountSession });
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : 'Login failed.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const logoutAccount = async () => {
+    if (state.status !== 'ready') return;
+    setAccountBusy(true);
+    setAccountError(null);
+    try {
+      await browser.runtime.sendMessage({ type: 'LOGOUT_ACCOUNT' } satisfies RuntimeMessage);
+      setState({ ...state, accountSession: null });
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : 'Logout failed.');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const refreshAccountPermissions = async () => {
+    if (state.status !== 'ready') return;
+    setAccountBusy(true);
+    setAccountError(null);
+    try {
+      const accountSession = await browser.runtime.sendMessage({ type: 'REFRESH_ACCOUNT_PERMISSIONS' } satisfies RuntimeMessage) as AccountSession | null;
+      setState({ ...state, accountSession });
+      if (!accountSession) setAccountError('Login expired. Please log in again.');
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : 'Could not refresh permissions.');
+    } finally {
+      setAccountBusy(false);
+    }
   };
 
   const saveSiteSettings = async (settings: Partial<SiteSettings>) => {
@@ -197,6 +249,8 @@ export function OptionsApp() {
   const language = state.settings.language;
   const pageTitle = state.page === 'settings'
     ? t(language, 'manager.settings')
+    : state.page === 'account'
+      ? t(language, 'manager.account')
     : state.page === 'sites'
       ? t(language, 'manager.sites')
       : state.selected?.site.scopeTitle ?? t(language, 'manager.indexes');
@@ -211,6 +265,15 @@ export function OptionsApp() {
     >
       {state.page === 'settings' ? (
         <SettingsPage settings={state.settings} saveSettings={(settings) => void saveSettings(settings)} />
+      ) : state.page === 'account' ? (
+        <AccountPage
+          accountBusy={accountBusy}
+          accountError={accountError}
+          accountSession={state.accountSession}
+          loginAccount={(email, password) => void loginAccount(email, password)}
+          logoutAccount={() => void logoutAccount()}
+          refreshAccountPermissions={() => void refreshAccountPermissions()}
+        />
       ) : state.page === 'sites' ? (
         <SitesPage
           fileInputRef={fileInputRef}

@@ -11,6 +11,8 @@ export type MessageKey =
   | 'manager.title'
   | 'manager.loading'
   | 'manager.settings'
+  | 'manager.account'
+  | 'manager.accountDescription'
   | 'manager.tables'
   | 'manager.pluginPreferences'
   | 'manager.indexesAndRecords'
@@ -135,6 +137,8 @@ export const EN_MESSAGES: Messages = {
   'manager.title': 'Manager',
   'manager.loading': 'Loading manager',
   'manager.settings': 'Settings',
+  'manager.account': 'Account',
+  'manager.accountDescription': 'Login and permissions',
   'manager.tables': 'Sites',
   'manager.pluginPreferences': 'Plugin preferences',
   'manager.indexesAndRecords': 'Site indexes and backups',
@@ -243,6 +247,8 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.title': '管理器',
     'manager.loading': '正在加载管理器',
     'manager.settings': '设置',
+    'manager.account': '账号',
+    'manager.accountDescription': '登录和权限',
     'manager.tables': '站点',
     'manager.pluginPreferences': '插件偏好',
     'manager.indexesAndRecords': '站点索引和备份',

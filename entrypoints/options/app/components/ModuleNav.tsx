@@ -19,7 +19,11 @@ export function ModuleNav(props: ModuleNavProps) {
         <span>{t(props.language, 'manager.settings')}</span>
         <small>{t(props.language, 'manager.pluginPreferences')}</small>
       </button>
-      <button className={props.page !== 'settings' ? 'module active' : 'module'} type="button" onClick={() => props.selectPage('sites')}>
+      <button className={props.page === 'account' ? 'module active' : 'module'} type="button" onClick={() => props.selectPage('account')}>
+        <span>{t(props.language, 'manager.account')}</span>
+        <small>{t(props.language, 'manager.accountDescription')}</small>
+      </button>
+      <button className={props.page === 'sites' || props.page === 'siteDetail' ? 'module active' : 'module'} type="button" onClick={() => props.selectPage('sites')}>
         <span>{t(props.language, 'manager.tables')}</span>
         <small>{t(props.language, 'manager.indexesAndRecords')}</small>
       </button>

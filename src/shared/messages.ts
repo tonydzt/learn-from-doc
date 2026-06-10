@@ -1,5 +1,6 @@
 import type { PageIndexRecord, SiteRecord, ProgressRecord } from '../storage/db';
 import type { AppSettings } from '../settings/app-settings';
+import type { AccountSession } from '../settings/account-session';
 import type { PageSettings } from '../settings/page-settings';
 import type { SiteSettings } from '../settings/site-settings';
 import type { PortableData, PortableImportPreview, PortableSerializedData } from '../storage/portable-data';
@@ -102,6 +103,10 @@ export type RuntimeMessage =
   | { type: 'CLEAR_ALL_PROGRESS' }
   | { type: 'GET_APP_SETTINGS' }
   | { type: 'SAVE_APP_SETTINGS'; settings: Partial<AppSettings> }
+  | { type: 'GET_ACCOUNT_SESSION' }
+  | { type: 'LOGIN_ACCOUNT'; email: string; password: string }
+  | { type: 'LOGOUT_ACCOUNT' }
+  | { type: 'REFRESH_ACCOUNT_PERMISSIONS' }
   | { type: 'EXPORT_PORTABLE_DATA'; scope: 'all' | 'site'; siteId?: string; includeProgress: boolean }
   | { type: 'PREVIEW_PORTABLE_IMPORT'; payload: PortableData }
   | { type: 'IMPORT_PORTABLE_DATA'; payload: PortableData; overwriteSiteIds: string[] }
@@ -138,3 +143,5 @@ export type PortableImportResultMessage = {
   importedCount: number;
   skipped: string[];
 };
+
+export type AccountSessionMessage = AccountSession | null;

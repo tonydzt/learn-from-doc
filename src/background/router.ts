@@ -1,6 +1,7 @@
 import { handleContentMessages } from './controllers/content/reading';
 import { handleMeasurementMessage } from './controllers/internal/measurement';
 import { handleOptionsMessages } from './controllers/options/index-management';
+import { handleAccountMessages } from './controllers/options/account';
 import { handlePopupMessages } from './controllers/popup/indexing';
 import { handleSharedQueryMessages } from './controllers/shared/queries';
 import { lfdTrace } from '../shared/logger';
@@ -39,6 +40,10 @@ export const handleRuntimeMessage = createMessageRouter({
   CLEAR_SITE_PROGRESS: handleOptionsMessages,
   CLEAR_ALL_PROGRESS: handleOptionsMessages,
   DELETE_SITE_INDEX: handleOptionsMessages,
+  GET_ACCOUNT_SESSION: handleAccountMessages,
+  LOGIN_ACCOUNT: handleAccountMessages,
+  LOGOUT_ACCOUNT: handleAccountMessages,
+  REFRESH_ACCOUNT_PERMISSIONS: handleAccountMessages,
   // popup
   GET_INDEX_RUN_PROGRESS: handlePopupMessages,
   GET_INDEX_CHECKPOINT: handlePopupMessages,

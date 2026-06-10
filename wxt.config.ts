@@ -13,6 +13,8 @@ export default defineConfig({
       'https://react.dev/*',
       'https://playwright.dev/docs*',
       'https://developers.openai.com/*',
+      'https://learn-from-doc-web.vercel.app/*',
+      'http://localhost:3000/*'
     ],
     optional_host_permissions: [
       'https://*/*',
