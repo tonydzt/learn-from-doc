@@ -21,8 +21,10 @@ import { SiteDetailPage } from './pages/SiteDetailPage';
 import { SitesPage } from './pages/SitesPage';
 
 export function OptionsApp() {
-  const requestedSiteId = React.useMemo(() => new URLSearchParams(location.search).get('siteId') ?? undefined, []);
-  const initialPage: PageKey = requestedSiteId ? 'siteDetail' : 'sites';
+  const searchParams = React.useMemo(() => new URLSearchParams(location.search), []);
+  const requestedSiteId = searchParams.get('siteId') ?? undefined;
+  const requestedPage = searchParams.get('page') === 'account' ? 'account' : undefined;
+  const initialPage: PageKey = requestedPage ?? (requestedSiteId ? 'siteDetail' : 'sites');
   const [state, setState] = React.useState<ManagerState>({ status: 'loading' });
   const [includePortableProgress, setIncludePortableProgress] = React.useState(false);
   const [accountBusy, setAccountBusy] = React.useState(false);
@@ -138,10 +140,10 @@ export function OptionsApp() {
     setState({ ...state, siteSettings: next });
   };
 
-  const selectSite = async (siteId: string) => {
+  const selectSite = async (siteId: string, detailTab: DetailTab = 'overview') => {
     if (state.status !== 'ready') return;
     window.history.replaceState(null, '', `${location.pathname}?siteId=${encodeURIComponent(siteId)}`);
-    await load(siteId, 'siteDetail', 'overview');
+    await load(siteId, 'siteDetail', detailTab);
   };
 
   const deleteSelected = async () => {
@@ -253,7 +255,7 @@ export function OptionsApp() {
       ? t(language, 'manager.account')
     : state.page === 'sites'
       ? t(language, 'manager.sites')
-      : state.selected?.site.scopeTitle ?? t(language, 'manager.indexes');
+      : state.selected?.site.host ?? t(language, 'manager.indexes');
 
   return (
     <OptionsShell
@@ -299,6 +301,7 @@ export function OptionsApp() {
           saveSiteSettings={(settings) => void saveSiteSettings(settings)}
           selectDetailTab={selectDetailTab}
           selectPage={selectPage}
+          selectScope={(siteId) => void selectSite(siteId, state.detailTab)}
         />
       )}
     </OptionsShell>

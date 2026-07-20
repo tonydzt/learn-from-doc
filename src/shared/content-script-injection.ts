@@ -11,6 +11,8 @@ type InjectionCheck = {
   pending: boolean;
 };
 
+const DEVELOPMENT_CONTENT_SCRIPT_FILE = 'content-scripts/content.js';
+
 async function readInjectionState(tabId: number): Promise<InjectionCheck> {
   const [result] = await browser.scripting.executeScript({
     target: { tabId },
@@ -46,7 +48,10 @@ async function clearManualInjectionPending(tabId: number): Promise<void> {
 
 /** 手动向标签页注入 manifest 中声明的首个 content script。 */
 export async function injectContentScript(tabId: number, source = 'background:manual'): Promise<void> {
-  const file = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
+  const manifestFile = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
+  // WXT 的开发 manifest 通过运行时注册 content script，不包含 content_scripts 字段；
+  // 但预渲染文件仍位于固定路径，索引测量页需要用该路径手动注入。
+  const file = manifestFile ?? (import.meta.env.DEV ? DEVELOPMENT_CONTENT_SCRIPT_FILE : undefined);
   if (!file) throw new Error('Content script file not found.');
   const scriptFile = file as NonNullable<Parameters<typeof browser.scripting.executeScript>[0]['files']>[number];
 

@@ -77,12 +77,39 @@ export type IndexOverview = {
   updatedAt: number;
 };
 
+export type ServerIndexAvailabilityMessage = {
+  available: boolean;
+  kinds: string[];
+  pageCount?: number;
+  updatedAt?: string | number;
+  site?: {
+    siteId?: string;
+    host?: string;
+    scopeKey?: string;
+    scopeTitle?: string;
+    pageCount?: number;
+    updatedAt?: string | number;
+  };
+};
+
+export type PullServerIndexResultMessage = {
+  importedCount: number;
+  serverUpdatedAt: number | null;
+};
+
+export type UploadServerIndexResultMessage = {
+  ok: true;
+  serverUpdatedAt: number;
+  siteCount: number;
+};
+
 export type RuntimeMessage =
   | { type: 'GET_PAGE_ADAPTER_CONTEXT' }
   | { type: 'HAS_ORIGIN_PERMISSION'; origin: string }
   | { type: 'GET_INDEXED_SCOPE_FOR_URL'; url: string }
   | { type: 'COLLECT_INDEX_LINKS' }
   | { type: 'START_INDEX'; tabId: number }
+  | { type: 'DEV_START_INDEX_FROM_PAGE' }
   | { type: 'GET_INDEX_CHECKPOINT'; siteId: string }
   | { type: 'REGISTER_PENDING_INDEX_AFTER_PERMISSION'; pending: PendingIndexAfterPermission }
   | { type: 'CLEAR_PENDING_INDEX_AFTER_PERMISSION' }
@@ -107,6 +134,10 @@ export type RuntimeMessage =
   | { type: 'LOGIN_ACCOUNT'; email: string; password: string }
   | { type: 'LOGOUT_ACCOUNT' }
   | { type: 'REFRESH_ACCOUNT_PERMISSIONS' }
+  | { type: 'GET_SERVER_INDEX_AVAILABILITY'; siteId: string }
+  | { type: 'PULL_SERVER_INDEX'; siteId: string; overwrite: boolean }
+  | { type: 'PULL_REVIEW_SERVER_INDEX'; siteId: string; overwrite: boolean }
+  | { type: 'UPLOAD_SERVER_INDEX'; siteId: string }
   | { type: 'EXPORT_PORTABLE_DATA'; scope: 'all' | 'site'; siteId?: string; includeProgress: boolean }
   | { type: 'PREVIEW_PORTABLE_IMPORT'; payload: PortableData }
   | { type: 'IMPORT_PORTABLE_DATA'; payload: PortableData; overwriteSiteIds: string[] }

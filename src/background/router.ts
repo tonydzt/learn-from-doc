@@ -1,4 +1,5 @@
 import { handleContentMessages } from './controllers/content/reading';
+import { handleDevelopmentIndexMessage } from './controllers/development/indexing';
 import { handleMeasurementMessage } from './controllers/internal/measurement';
 import { handleOptionsMessages } from './controllers/options/index-management';
 import { handleAccountMessages } from './controllers/options/account';
@@ -37,6 +38,10 @@ export const handleRuntimeMessage = createMessageRouter({
   EXPORT_PORTABLE_DATA: handleOptionsMessages,
   PREVIEW_PORTABLE_IMPORT: handleOptionsMessages,
   IMPORT_PORTABLE_DATA: handleOptionsMessages,
+  GET_SERVER_INDEX_AVAILABILITY: handleOptionsMessages,
+  PULL_SERVER_INDEX: handleOptionsMessages,
+  PULL_REVIEW_SERVER_INDEX: handleOptionsMessages,
+  UPLOAD_SERVER_INDEX: handleOptionsMessages,
   CLEAR_SITE_PROGRESS: handleOptionsMessages,
   CLEAR_ALL_PROGRESS: handleOptionsMessages,
   DELETE_SITE_INDEX: handleOptionsMessages,
@@ -48,6 +53,7 @@ export const handleRuntimeMessage = createMessageRouter({
   GET_INDEX_RUN_PROGRESS: handlePopupMessages,
   GET_INDEX_CHECKPOINT: handlePopupMessages,
   START_INDEX: handlePopupMessages,
+  ...(import.meta.env.DEV ? { DEV_START_INDEX_FROM_PAGE: handleDevelopmentIndexMessage } : {}),
   REGISTER_PENDING_INDEX_AFTER_PERMISSION: handlePopupMessages,
   CLEAR_PENDING_INDEX_AFTER_PERMISSION: handlePopupMessages,
   // content script write/read

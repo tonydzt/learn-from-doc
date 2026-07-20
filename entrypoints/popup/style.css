@@ -75,7 +75,8 @@ h1 {
   letter-spacing: 0;
 }
 
-.status {
+.account-status-pill,
+.account-status-button {
   flex: 0 0 auto;
   margin-top: 2px;
   padding: 5px 8px;
@@ -87,7 +88,18 @@ h1 {
   font-weight: 800;
 }
 
-.muted-status {
+.account-status-button {
+  cursor: pointer;
+}
+
+.account-status-button:hover,
+.account-status-button:focus-visible {
+  border-color: rgba(15, 118, 110, .4);
+  background: rgba(20, 184, 166, .16);
+  outline: 0;
+}
+
+.account-status-button {
   border-color: rgba(100, 116, 139, .22);
   background: rgba(100, 116, 139, .08);
   color: #64748b;
@@ -228,6 +240,39 @@ h1 {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #14b8a6, #0f766e);
+}
+
+.server-index-actions {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.server-index-hint,
+.server-index-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.server-index-hint {
+  color: #475569;
+  font-weight: 700;
+}
+
+.server-index-error {
+  color: #b91c1c;
+  font-weight: 750;
+}
+
+.server-index-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.server-index-buttons .secondary {
+  margin-top: 0;
 }
 
 .primary {

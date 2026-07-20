@@ -8,20 +8,23 @@ import {
   getStoredAccountSession,
   saveStoredAccountSession,
 } from '../../storage/settings';
-
-// const API_ORIGIN = 'https://learn-from-doc-web.vercel.app';
-const API_ORIGIN = 'http://localhost:3000';
+import { API_ORIGIN } from './api';
+import { requireAccountAuth } from './account-auth';
 
 
 type LoginResponse = {
   accessToken?: unknown;
+  refreshToken?: unknown;
   user?: unknown;
   permissions?: unknown;
+  visiblePermissions?: unknown;
+  expiresAt?: unknown;
 };
 
 type PermissionsResponse = {
   user?: unknown;
   permissions?: unknown;
+  visiblePermissions?: unknown;
 };
 
 async function readJson(response: Response): Promise<unknown> {
@@ -57,8 +60,11 @@ export async function loginAccountForBackground(email: string, password: string)
 
   const session = normalizeAccountSession({
     accessToken: payload.accessToken,
+    refreshToken: payload.refreshToken,
     user: payload.user,
     permissions: payload.permissions,
+    visiblePermissions: payload.visiblePermissions,
+    expiresAt: payload.expiresAt,
     updatedAt: Date.now(),
   });
   if (!session) throw new Error('Login response is invalid');
@@ -71,12 +77,11 @@ export async function logoutAccountForBackground(): Promise<null> {
 }
 
 export async function refreshAccountPermissionsForBackground(): Promise<AccountSession | null> {
-  const current = await getStoredAccountSession();
-  if (!current) return null;
+  const { session: current, headers } = await requireAccountAuth();
 
   const response = await fetch(`${API_ORIGIN}/api/me/permissions`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${current.accessToken}` },
+    headers,
   });
   const payload = await readJson(response) as PermissionsResponse;
   if (response.status === 401) {
@@ -91,6 +96,7 @@ export async function refreshAccountPermissionsForBackground(): Promise<AccountS
     ...current,
     user: payload.user ?? current.user,
     permissions: normalizeAccountPermissions(payload.permissions),
+    visiblePermissions: payload.visiblePermissions,
     updatedAt: Date.now(),
   });
   if (!next) {

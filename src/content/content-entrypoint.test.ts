@@ -4,6 +4,7 @@ import {
   CONTENT_SCRIPT_PENDING_ATTR,
   CONTENT_SCRIPT_READY_ATTR,
 } from '../shared/constants';
+import { DEVELOPMENT_INDEX_SHORTCUT_READY_ATTR } from './development-index-shortcut';
 
 vi.mock('wxt/browser', () => ({
   browser: {
@@ -87,6 +88,7 @@ describe('content script lifecycle', () => {
     document.documentElement.removeAttribute(CONTENT_SCRIPT_BOOTING_ATTR);
     document.documentElement.removeAttribute(CONTENT_SCRIPT_PENDING_ATTR);
     document.documentElement.removeAttribute(CONTENT_SCRIPT_READY_ATTR);
+    document.documentElement.removeAttribute(DEVELOPMENT_INDEX_SHORTCUT_READY_ATTR);
     vi.stubGlobal('defineContentScript', (definition: unknown) => definition);
   });
 
@@ -141,6 +143,7 @@ describe('content script lifecycle', () => {
 
     expect(browser.runtime.onMessage.addListener).toHaveBeenCalledTimes(1);
     expect(document.documentElement.getAttribute(CONTENT_SCRIPT_READY_ATTR)).toBe('true');
+    expect(document.documentElement.getAttribute(DEVELOPMENT_INDEX_SHORTCUT_READY_ATTR)).toBe('true');
     expect(document.documentElement.hasAttribute(CONTENT_SCRIPT_BOOTING_ATTR)).toBe(false);
     expect(document.documentElement.hasAttribute(CONTENT_SCRIPT_PENDING_ATTR)).toBe(false);
   });

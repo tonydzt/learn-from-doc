@@ -1,12 +1,41 @@
 import { normalizePageUrl } from '../../shared/url';
-import type { DocSiteAdapter, ProgressInsertionTargets, SidebarLink } from '../types';
+import type { DocScope, DocSiteAdapter, ProgressInsertionTargets, SidebarLink } from '../types';
+
+type PlaywrightScope = {
+  pathPrefix: string;
+  scopeKey: string;
+  scopeTitle: string;
+};
+
+const PLAYWRIGHT_SCOPES: PlaywrightScope[] = [
+  { pathPrefix: '/docs/api', scopeKey: 'playwright-docs-api', scopeTitle: 'Playwright API' },
+  { pathPrefix: '/docs', scopeKey: 'playwright-docs', scopeTitle: 'Playwright Docs' },
+  { pathPrefix: '/python/docs/api', scopeKey: 'playwright-python-api', scopeTitle: 'Playwright Python API' },
+  { pathPrefix: '/python/docs', scopeKey: 'playwright-python-docs', scopeTitle: 'Playwright Python Docs' },
+  { pathPrefix: '/java/docs/api', scopeKey: 'playwright-java-api', scopeTitle: 'Playwright Java API' },
+  { pathPrefix: '/java/docs', scopeKey: 'playwright-java-docs', scopeTitle: 'Playwright Java Docs' },
+  { pathPrefix: '/dotnet/docs/api', scopeKey: 'playwright-dotnet-api', scopeTitle: 'Playwright .NET API' },
+  { pathPrefix: '/dotnet/docs', scopeKey: 'playwright-dotnet-docs', scopeTitle: 'Playwright .NET Docs' },
+  { pathPrefix: '/mcp', scopeKey: 'playwright-mcp', scopeTitle: 'Playwright MCP Docs' },
+];
 
 function sidebarRoot(): Element | null {
   return document.querySelector('nav[aria-label="Docs sidebar"]');
 }
 
-function isPlaywrightDocsPath(pathname: string): boolean {
-  return pathname === '/docs' || pathname.startsWith('/docs/');
+function pathMatchesPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function playwrightScopeForUrl(url: URL): DocScope | null {
+  if (url.hostname !== 'playwright.dev') return null;
+  const scope = PLAYWRIGHT_SCOPES.find((candidate) => pathMatchesPrefix(url.pathname, candidate.pathPrefix));
+  if (!scope) return null;
+  return {
+    host: url.hostname,
+    scopeKey: scope.scopeKey,
+    scopeTitle: scope.scopeTitle,
+  };
 }
 
 function linkTitle(anchor: HTMLAnchorElement): string {
@@ -21,16 +50,11 @@ export const PlaywrightDevAdapter: DocSiteAdapter = {
   id: 'playwright-dev',
 
   matches(url) {
-    return url.hostname === 'playwright.dev' && isPlaywrightDocsPath(url.pathname);
+    return playwrightScopeForUrl(url) !== null;
   },
 
   getDocScopeForUrl(url) {
-    if (!this.matches(url)) return null;
-    return {
-      host: url.hostname,
-      scopeKey: 'playwright-docs',
-      scopeTitle: 'Playwright Docs',
-    };
+    return playwrightScopeForUrl(url);
   },
 
   getDocScope() {
@@ -64,10 +88,14 @@ export const PlaywrightDevAdapter: DocSiteAdapter = {
 
     const links = Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]'));
     const byUrl = new Map<string, SidebarLink>();
+    let activeScopeKey = this.getDocScope()?.scopeKey;
 
     for (const element of links) {
       const url = new URL(element.href, location.href);
-      if (url.hostname !== 'playwright.dev' || !isPlaywrightDocsPath(url.pathname)) continue;
+      const scope = playwrightScopeForUrl(url);
+      if (!scope) continue;
+      activeScopeKey ??= scope.scopeKey;
+      if (scope.scopeKey !== activeScopeKey) continue;
 
       const normalized = normalizePageUrl(url.toString());
       const existing = byUrl.get(normalized);

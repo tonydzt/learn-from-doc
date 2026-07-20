@@ -9,9 +9,17 @@ export default defineConfig({
     description: 'Save and restore reading progress on developer documentation and long technical pages.',
     version: '0.2.0',
     permissions: ['activeTab', 'tabs', 'storage', 'scripting'],
+    commands: {
+      _execute_action: {
+        suggested_key: {
+          default: 'Ctrl+Shift+L',
+          mac: 'Command+Shift+L',
+        },
+      },
+    },
     host_permissions: [
       'https://react.dev/*',
-      'https://playwright.dev/docs*',
+      'https://playwright.dev/*',
       'https://developers.openai.com/*',
       'https://learn-from-doc-web.vercel.app/*',
       'http://localhost:3000/*'

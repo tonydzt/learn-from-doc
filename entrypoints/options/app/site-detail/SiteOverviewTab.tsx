@@ -8,8 +8,6 @@ type SiteOverviewTabProps = {
   selected?: SiteSnapshot;
   siteSettings?: SiteSettings;
   language: LanguageCode;
-  totalPages: number;
-  totalProgressRows: number;
   totalPercent: number;
   clearAllProgress(): void;
   clearSelectedProgress(): void;
@@ -53,8 +51,8 @@ export function SiteOverviewTab(props: SiteOverviewTabProps) {
 
       <div className="stats">
         <div className="stat-card primary-stat"><span>{t(props.language, 'popup.totalProgress')}</span><strong>{props.fmtPercent(props.totalPercent)}</strong></div>
-        <div className="stat-card"><span>{t(props.language, 'manager.pages')}</span><strong>{props.selected.pages.length} / {props.totalPages}</strong></div>
-        <div className="stat-card"><span>{t(props.language, 'manager.progressRows')}</span><strong>{props.selected.progress.length} / {props.totalProgressRows}</strong></div>
+        <div className="stat-card"><span>{t(props.language, 'manager.pages')}</span><strong>{props.selected.pages.length}</strong></div>
+        <div className="stat-card"><span>{t(props.language, 'manager.pagesWithProgress')}</span><strong>{props.selected.progress.length} / {props.selected.pages.length}</strong></div>
         <div className="stat-card"><span>{t(props.language, 'manager.totalHeight')}</span><strong>{props.fmtHeight(totalHeight)}</strong></div>
         <div className="stat-card"><span>{t(props.language, 'manager.viewedHeight')}</span><strong>{props.fmtHeight(totalViewed)}</strong></div>
         <div className="stat-card id-stat"><span>{t(props.language, 'manager.siteId')}</span><strong className="compact">{props.selected.site.siteId}</strong></div>

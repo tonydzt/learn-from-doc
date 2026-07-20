@@ -71,7 +71,18 @@ describe('AccountPage', () => {
     const accountSession: AccountSession = {
       accessToken: 'token-1',
       user: { id: 'user-1', email: 'reader@example.com', name: 'Reader' },
-      permissions: { canSync: true, canPullServerData: false },
+      permissions: {
+        canSync: true,
+        canPullServerData: false,
+        canTestSystemIndexes: true,
+        hiddenPermission: true,
+      },
+      visiblePermissions: [
+        { key: 'canPullServerData', label: 'Pull from server' },
+        { key: 'canSync', label: 'Sync devices' },
+        { key: 'canTestSystemIndexes', label: 'Test system indexes' },
+      ],
+      expiresAt: Date.parse('2100-01-01T00:00:00Z'),
       updatedAt: 1,
     };
     const logoutAccount = vi.fn();
@@ -84,10 +95,17 @@ describe('AccountPage', () => {
 
     expect(container.textContent).toContain('Reader');
     expect(container.textContent).toContain('reader@example.com');
-    expect(container.textContent).toContain('Multi-device sync');
-    expect(container.textContent).toContain('Enabled');
-    expect(container.textContent).toContain('Server data pull');
-    expect(container.textContent).toContain('Disabled');
+    expect([...container.querySelectorAll('.permission-row span')].map((element) => element.textContent)).toEqual([
+      'Pull from server',
+      'Sync devices',
+      'Test system indexes',
+    ]);
+    expect([...container.querySelectorAll('.permission-row strong')].map((element) => element.textContent)).toEqual([
+      'Disabled',
+      'Enabled',
+      'Enabled',
+    ]);
+    expect(container.textContent).not.toContain('hiddenPermission');
 
     const buttons = [...container.querySelectorAll('button')];
     act(() => {
@@ -97,6 +115,57 @@ describe('AccountPage', () => {
 
     expect(refreshAccountPermissions).toHaveBeenCalled();
     expect(logoutAccount).toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('hides a false test-system-indexes permission without hiding other disabled permissions', () => {
+    const { container, unmount } = renderAccountPage({
+      accountSession: {
+        accessToken: 'token-1',
+        user: { id: 'user-1', email: 'reader@example.com' },
+        permissions: {
+          canSync: false,
+          canPullServerData: true,
+          canTestSystemIndexes: false,
+        },
+        visiblePermissions: [
+          { key: 'canSync', label: 'Sync devices' },
+          { key: 'canTestSystemIndexes', label: 'Test system indexes' },
+        ],
+        expiresAt: Date.parse('2100-01-01T00:00:00Z'),
+        updatedAt: 1,
+      },
+    });
+
+    expect(container.textContent).toContain('Sync devices');
+    expect(container.textContent).toContain('Disabled');
+    expect(container.textContent).not.toContain('Test system indexes');
+
+    unmount();
+  });
+
+  it('shows expired account status and the stored expiry time', () => {
+    const { container, unmount } = renderAccountPage({
+      now: Date.parse('2026-06-10T00:00:00Z'),
+      accountSession: {
+        accessToken: 'token-1',
+        user: { id: 'user-1', email: 'reader@example.com' },
+        permissions: {
+          canSync: false,
+          canPullServerData: true,
+          canTestSystemIndexes: false,
+        },
+        visiblePermissions: [{ key: 'canPullServerData', label: 'Pull from server' }],
+        expiresAt: Date.parse('2026-06-09T00:00:00Z'),
+        updatedAt: 1,
+      },
+    });
+
+    expect(container.textContent).toContain('Login expired');
+    expect(container.textContent).toContain('Expires at');
+    expect(container.textContent).toContain('2026');
+    expect(container.querySelector('input[type="email"]')).not.toBeNull();
 
     unmount();
   });

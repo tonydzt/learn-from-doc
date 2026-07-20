@@ -1,6 +1,10 @@
 import { browser } from 'wxt/browser';
 import { getAdapterForPage, getAdapterForUrl } from '../src/adapters';
 import { collectIndexLinks, getPageAdapterContext, runIndexMeasurement } from '../src/content/indexing';
+import {
+  DEVELOPMENT_INDEX_SHORTCUT_READY_ATTR,
+  handleDevelopmentIndexShortcut,
+} from '../src/content/development-index-shortcut';
 import { afterHydration } from '../src/content/hydration';
 import {
   shouldRestartTrackingForUrl,
@@ -41,7 +45,7 @@ async function canRunReadingFeatures(): Promise<boolean> {
 export default defineContentScript({
   matches: [
     'https://react.dev/*',
-    'https://playwright.dev/docs*',
+    'https://playwright.dev/*',
     'https://developers.openai.com/*',
   ],
   runAt: 'document_end',
@@ -221,6 +225,11 @@ export default defineContentScript({
         return undefined;
       };
       browser.runtime.onMessage.addListener(onRuntimeMessage);
+      if (import.meta.env.DEV) {
+        root.setAttribute(DEVELOPMENT_INDEX_SHORTCUT_READY_ATTR, 'true');
+        ctx.addEventListener(document, 'keydown', handleDevelopmentIndexShortcut);
+        lfdDebug('development index shortcut enabled', { url: location.href });
+      }
       const onStorageChanged = (
         changes: Record<string, chrome.storage.StorageChange>,
         areaName: string,
@@ -248,6 +257,7 @@ export default defineContentScript({
         root.removeAttribute(CONTENT_SCRIPT_READY_ATTR);
         root.removeAttribute(CONTENT_SCRIPT_BOOTING_ATTR);
         root.removeAttribute(CONTENT_SCRIPT_PENDING_ATTR);
+        if (import.meta.env.DEV) root.removeAttribute(DEVELOPMENT_INDEX_SHORTCUT_READY_ATTR);
         globalThis.clearInterval(locationPoll);
         browser.runtime.onMessage.removeListener(onRuntimeMessage);
         browser.storage.onChanged.removeListener(onStorageChanged);

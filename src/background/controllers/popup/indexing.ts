@@ -14,7 +14,7 @@ import type { BackgroundContext } from '../../types';
 // 这里用一个 Promise 队列串行处理 permissions.onAdded 和注册补偿触发，避免同一个 pending action 被并发消费。
 let resumeQueue: Promise<unknown> = Promise.resolve();
 
-async function runIndex(context: BackgroundContext, tabId: number) {
+export async function runIndex(context: BackgroundContext, tabId: number) {
   return startIndex(context, tabId).catch(async (error: unknown) => {
     context.indexRunProgress.clearSoon();
     await logIndexFailureToSourceTab(tabId, error);

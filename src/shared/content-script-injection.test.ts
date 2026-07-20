@@ -38,10 +38,18 @@ function fileInjectionCount(): number {
 describe('content script injection helper', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('DEV', true);
+    vi.mocked(browser.runtime.getManifest).mockReturnValue({
+      content_scripts: [{ js: ['content-scripts/content.js'] }],
+    } as chrome.runtime.Manifest);
     document.documentElement.removeAttribute(CONTENT_SCRIPT_READY_ATTR);
     document.documentElement.removeAttribute(CONTENT_SCRIPT_PENDING_ATTR);
     document.documentElement.removeAttribute(INJECTION_SOURCE_ATTR);
     mockExecuteScript();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('skips file injection when the content script is already ready', async () => {
@@ -66,6 +74,23 @@ describe('content script injection helper', () => {
     expect(document.documentElement.getAttribute(CONTENT_SCRIPT_PENDING_ATTR)).toBe('true');
     expect(document.documentElement.getAttribute(INJECTION_SOURCE_ATTR)).toBe('test:fresh');
     expect(fileInjectionCount()).toBe(1);
+  });
+
+  it('uses the WXT development content script path when the development manifest omits content_scripts', async () => {
+    vi.mocked(browser.runtime.getManifest).mockReturnValue({} as chrome.runtime.Manifest);
+
+    await injectContentScript(1, 'test:development');
+
+    expect(fileInjectionCount()).toBe(1);
+  });
+
+  it('does not use the development fallback in production builds', async () => {
+    vi.stubEnv('DEV', false);
+    vi.mocked(browser.runtime.getManifest).mockReturnValue({} as chrome.runtime.Manifest);
+
+    await expect(injectContentScript(1, 'test:production')).rejects.toThrow('Content script file not found.');
+
+    expect(fileInjectionCount()).toBe(0);
   });
 
   it('clears pending when file injection fails', async () => {

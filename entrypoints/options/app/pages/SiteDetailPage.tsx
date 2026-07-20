@@ -32,11 +32,13 @@ type SiteDetailPageProps = {
   saveSiteSettings(settings: Partial<SiteSettings>): void;
   selectDetailTab(detailTab: DetailTab): void;
   selectPage(page: PageKey): void;
+  selectScope(siteId: string): void;
 };
 
 export function SiteDetailPage(props: SiteDetailPageProps) {
-  const totalPages = props.overviews.reduce((sum, item) => sum + item.pageCount, 0);
-  const totalProgressRows = props.selected?.progress.length ?? 0;
+  const siteOverviews = props.selected
+    ? props.overviews.filter((overview) => overview.site.host === props.selected?.site.host)
+    : [];
   const selectedOverview = props.selected
     ? props.overviews.find((overview) => overview.site.siteId === props.selected?.site.siteId)
     : undefined;
@@ -47,10 +49,10 @@ export function SiteDetailPage(props: SiteDetailPageProps) {
         <section className="detail-hero">
           <div>
             <p className="section-kicker">{t(props.language, 'manager.indexes')}</p>
-            <h2>{props.selected?.site.scopeTitle ?? t(props.language, 'manager.indexes')}</h2>
+            <h2>{props.selected?.site.host ?? t(props.language, 'manager.indexes')}</h2>
             <p className="muted">
               {props.selected
-                ? `${props.selected.site.host} · ${t(props.language, 'common.updated', { date: fmtDate(props.selected.site.updatedAt, props.language) })}`
+                ? `${props.selected.site.scopeTitle} · ${t(props.language, 'common.updated', { date: fmtDate(props.selected.site.updatedAt, props.language) })}`
                 : t(props.language, 'manager.selectIndex')}
             </p>
           </div>
@@ -64,6 +66,21 @@ export function SiteDetailPage(props: SiteDetailPageProps) {
             </div>
           )}
         </section>
+
+        {props.selected && (
+          <div className="scope-tabs" aria-label={t(props.language, 'manager.scope')}>
+            {siteOverviews.map((overview) => (
+              <button
+                className={overview.site.siteId === props.selected?.site.siteId ? 'tab scope-tab active' : 'tab scope-tab'}
+                key={overview.site.siteId}
+                type="button"
+                onClick={() => props.selectScope(overview.site.siteId)}
+              >
+                {overview.site.scopeTitle}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="detail-nav">
           <button className="ghost" type="button" onClick={() => props.selectPage('sites')}>{t(props.language, 'manager.sites')}</button>
@@ -88,8 +105,6 @@ export function SiteDetailPage(props: SiteDetailPageProps) {
             siteSettings={props.siteSettings}
             saveSiteSettings={props.saveSiteSettings}
             totalPercent={selectedOverview?.totalPercent ?? 0}
-            totalPages={totalPages}
-            totalProgressRows={totalProgressRows}
           />
         )}
 

@@ -75,4 +75,30 @@ describe('background message router', () => {
       'REFRESH_ACCOUNT_PERMISSIONS',
     ]);
   });
+
+  it('can route server index sync message types', () => {
+    const calls: string[] = [];
+    const handler: BackgroundHandler = (message) => {
+      calls.push(message.type);
+      return { ok: true };
+    };
+
+    const router = createMessageRouter({
+      GET_SERVER_INDEX_AVAILABILITY: handler,
+      PULL_SERVER_INDEX: handler,
+      PULL_REVIEW_SERVER_INDEX: handler,
+      UPLOAD_SERVER_INDEX: handler,
+    });
+
+    expect(router({ type: 'GET_SERVER_INDEX_AVAILABILITY', siteId: 'react.dev::learn' }, sender, testContext())).toEqual({ ok: true });
+    expect(router({ type: 'PULL_SERVER_INDEX', siteId: 'react.dev::learn', overwrite: true }, sender, testContext())).toEqual({ ok: true });
+    expect(router({ type: 'PULL_REVIEW_SERVER_INDEX', siteId: 'react.dev::learn', overwrite: true }, sender, testContext())).toEqual({ ok: true });
+    expect(router({ type: 'UPLOAD_SERVER_INDEX', siteId: 'react.dev::learn' }, sender, testContext())).toEqual({ ok: true });
+    expect(calls).toEqual([
+      'GET_SERVER_INDEX_AVAILABILITY',
+      'PULL_SERVER_INDEX',
+      'PULL_REVIEW_SERVER_INDEX',
+      'UPLOAD_SERVER_INDEX',
+    ]);
+  });
 });

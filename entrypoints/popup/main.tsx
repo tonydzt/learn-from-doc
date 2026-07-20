@@ -7,10 +7,17 @@ import { detectionResultState, initialDetectionState } from '../../src/popup/det
 import { cachedDetectedFrameworkContextForUrl, saveDetectedFrameworkContext } from '../../src/popup/framework-detection-cache';
 import { probePageAdapterContext } from '../../src/popup/framework-probe';
 import { prepareIndexStart } from '../../src/popup/index-start';
+import { ServerIndexActions, serverAccountCapabilities } from '../../src/popup/server-index-actions';
 import { DEFAULT_LANGUAGE, type AppSettings, type LanguageCode } from '../../src/settings/app-settings';
+import {
+  accountLoginStatus,
+  type AccountLoginStatus,
+  type AccountSession,
+} from '../../src/settings/account-session';
 import { injectContentScript } from '../../src/shared/content-script-injection';
-import type { IndexCheckpointSummary, PageAdapterContext, RuntimeMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
+import type { IndexCheckpointSummary, PageAdapterContext, RuntimeMessage, ServerIndexAvailabilityMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
 import { siteIdFor } from '../../src/shared/url';
+import { getCachedServerIndexAvailability, saveCachedServerIndexAvailability } from '../../src/storage/browser-storage/server-index-availability';
 import type { SiteRecord } from '../../src/storage/db';
 import './style.css';
 
@@ -27,6 +34,11 @@ type PopupContext = {
   totalPercent?: number;
   pageCount?: number;
   indexCheckpoint?: IndexCheckpointSummary | null;
+  serverIndex?: ServerIndexAvailabilityMessage;
+  canPullServerIndex?: boolean;
+  canPullReviewServerIndex?: boolean;
+  canUploadServerIndex?: boolean;
+  accountStatus?: AccountLoginStatus;
 };
 
 type LoadState =
@@ -103,15 +115,48 @@ function messageForPhase(language: LanguageCode, phase: IndexRunProgress['phase'
   return t(language, 'popup.creatingIndex');
 }
 
+function labelForAccountStatus(status: AccountLoginStatus | undefined): string {
+  if (status === 'logged-in') return 'Logged in';
+  if (status === 'expired') return 'Expired';
+  return 'Log in';
+}
+
 function App() {
   const [state, setState] = React.useState<LoadState>({ status: 'loading' });
   const [indexing, setIndexing] = React.useState(false);
   const [detecting, setDetecting] = React.useState(false);
   const [indexProgress, setIndexProgress] = React.useState<IndexRunProgress | null>(null);
+  const [serverBusy, setServerBusy] = React.useState(false);
+  const [serverError, setServerError] = React.useState<string | null>(null);
 
   const restoreIndexProgress = React.useCallback((progress: IndexRunProgress | null) => {
     setIndexProgress(progress);
     setIndexing(Boolean(progress && progress.phase !== 'done'));
+  }, []);
+
+  const checkServerIndexAvailability = React.useCallback(async (siteId: string, canPullServerIndex: boolean | undefined) => {
+    if (canPullServerIndex !== true) return;
+    try {
+      const serverIndex = await browser.runtime.sendMessage({
+        type: 'GET_SERVER_INDEX_AVAILABILITY',
+        siteId,
+      } satisfies RuntimeMessage) as ServerIndexAvailabilityMessage;
+      await saveCachedServerIndexAvailability(siteId, serverIndex);
+      setState((current) => {
+        if (current.status !== 'ready') return current;
+        if (!current.context.host || !current.context.scopeKey) return current;
+        if (siteIdFor(current.context.host, current.context.scopeKey) !== siteId) return current;
+        if (current.context.indexed) return current;
+        return {
+          ...current,
+          context: {
+            ...current.context,
+            serverIndex,
+          },
+        };
+      });
+    } catch {
+    }
   }, []);
 
   const loadSupportedContext = React.useCallback(async (
@@ -120,13 +165,24 @@ function App() {
     settingsPromise: Promise<AppSettings>,
   ) => {
     const siteId = siteIdFor(pageContext.host, pageContext.scopeKey);
-    const [snapshot, indexCheckpoint, indexRunProgress, settings] = await Promise.all([
+    const [snapshot, indexCheckpoint, indexRunProgress, settings, accountSession] = await Promise.all([
       browser.runtime.sendMessage({ type: 'GET_SITE_SNAPSHOT', siteId } satisfies RuntimeMessage) as Promise<SiteSnapshot | undefined>,
       browser.runtime.sendMessage({ type: 'GET_INDEX_CHECKPOINT', siteId } satisfies RuntimeMessage) as Promise<IndexCheckpointSummary | null>,
       indexRunProgressPromise,
       settingsPromise,
+      browser.runtime.sendMessage({ type: 'GET_ACCOUNT_SESSION' } satisfies RuntimeMessage) as Promise<AccountSession | null>,
     ]);
+    const {
+      accountStatus,
+      canPull: canPullServerIndex,
+      canPullReview: canPullReviewServerIndex,
+      canUpload: canUploadServerIndex,
+    } = serverAccountCapabilities(accountSession);
+    const cachedServerIndex = !snapshot && canPullServerIndex
+      ? await getCachedServerIndexAvailability(siteId)
+      : null;
     restoreIndexProgress(indexRunProgress);
+    setServerError(null);
     setState({
       status: 'ready',
       settings,
@@ -141,9 +197,17 @@ function App() {
         totalPercent: snapshot ? totalProgressPercent(snapshot.pages, snapshot.progress) : 0,
         pageCount: snapshot?.pages.length ?? 0,
         indexCheckpoint,
+        serverIndex: cachedServerIndex ?? undefined,
+        canPullServerIndex,
+        canPullReviewServerIndex,
+        canUploadServerIndex,
+        accountStatus,
       },
     });
-  }, [restoreIndexProgress]);
+    if (!snapshot && canPullServerIndex) {
+      void checkServerIndexAvailability(siteId, canPullServerIndex);
+    }
+  }, [checkServerIndexAvailability, restoreIndexProgress]);
 
   const load = React.useCallback(async () => {
     // popup 每次打开都是一个短生命周期 React 页面。
@@ -190,15 +254,31 @@ function App() {
       }
 
       if (initial.status !== 'needs-manual-detect') {
-        const [indexRunProgress, settings] = await Promise.all([indexRunProgressPromise, settingsPromise]);
+        const [indexRunProgress, settings, accountSession] = await Promise.all([
+          indexRunProgressPromise,
+          settingsPromise,
+          browser.runtime.sendMessage({ type: 'GET_ACCOUNT_SESSION' } satisfies RuntimeMessage) as Promise<AccountSession | null>,
+        ]);
         restoreIndexProgress(indexRunProgress);
-        setState({ status: 'ready', context: { supported: false, indexed: false }, settings });
+        setState({
+          status: 'ready',
+          context: { supported: false, indexed: false, accountStatus: accountLoginStatus(accountSession) },
+          settings,
+        });
         return;
       }
 
-      const [indexRunProgress, settings] = await Promise.all([indexRunProgressPromise, settingsPromise]);
+      const [indexRunProgress, settings, accountSession] = await Promise.all([
+        indexRunProgressPromise,
+        settingsPromise,
+        browser.runtime.sendMessage({ type: 'GET_ACCOUNT_SESSION' } satisfies RuntimeMessage) as Promise<AccountSession | null>,
+      ]);
       restoreIndexProgress(indexRunProgress);
-      setState({ status: 'ready', context: { supported: false, indexed: false, canDetect: true }, settings });
+      setState({
+        status: 'ready',
+        context: { supported: false, indexed: false, canDetect: true, accountStatus: accountLoginStatus(accountSession) },
+        settings,
+      });
     } catch (error) {
       setState({
         status: 'error',
@@ -302,6 +382,68 @@ function App() {
     await browser.tabs.create({ url });
   };
 
+  const openAccountManager = async () => {
+    await browser.tabs.create({ url: `${browser.runtime.getURL('/options.html')}?page=account` });
+  };
+
+  const pullServerIndex = async () => {
+    if (state.status !== 'ready' || !state.context.host || !state.context.scopeKey) return;
+    const siteId = siteIdFor(state.context.host, state.context.scopeKey);
+    if (state.context.indexed && !window.confirm(t(state.settings.language, 'popup.confirmPullOverwrite'))) return;
+    setServerBusy(true);
+    setServerError(null);
+    try {
+      await browser.runtime.sendMessage({
+        type: 'PULL_SERVER_INDEX',
+        siteId,
+        overwrite: state.context.indexed,
+      } satisfies RuntimeMessage);
+      await load();
+    } catch (error) {
+      setServerError(error instanceof Error ? error.message : 'Could not pull server index.');
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
+  const pullReviewServerIndex = async () => {
+    if (state.status !== 'ready' || !state.context.host || !state.context.scopeKey) return;
+    const siteId = siteIdFor(state.context.host, state.context.scopeKey);
+    if (state.context.indexed && !window.confirm(t(state.settings.language, 'popup.confirmPullOverwrite'))) return;
+    setServerBusy(true);
+    setServerError(null);
+    try {
+      await browser.runtime.sendMessage({
+        type: 'PULL_REVIEW_SERVER_INDEX',
+        siteId,
+        overwrite: state.context.indexed,
+      } satisfies RuntimeMessage);
+      await load();
+    } catch (error) {
+      setServerError(error instanceof Error ? error.message : 'Could not pull server index.');
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
+  const uploadServerIndex = async () => {
+    if (state.status !== 'ready' || !state.context.host || !state.context.scopeKey) return;
+    const siteId = siteIdFor(state.context.host, state.context.scopeKey);
+    setServerBusy(true);
+    setServerError(null);
+    try {
+      await browser.runtime.sendMessage({
+        type: 'UPLOAD_SERVER_INDEX',
+        siteId,
+      } satisfies RuntimeMessage);
+      await load();
+    } catch (error) {
+      setServerError(error instanceof Error ? error.message : 'Could not upload server index.');
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
   if (state.status === 'loading') {
     return (
       <main className="shell">
@@ -339,7 +481,13 @@ function App() {
           {context.frameworkName ? <p className="framework-label">Detected: {context.frameworkName}</p> : null}
         </div>
         <div className="header-actions">
-          {context.indexed ? <span className="status">{t(language, 'popup.indexed')}</span> : <span className="status muted-status">{t(language, 'popup.new')}</span>}
+          {context.accountStatus === 'logged-in' ? (
+            <span className="account-status-pill">{labelForAccountStatus(context.accountStatus)}</span>
+          ) : (
+            <button className="account-status-button" type="button" onClick={() => void openAccountManager()}>
+              {labelForAccountStatus(context.accountStatus)}
+            </button>
+          )}
           <button className="icon-button" type="button" title={t(language, 'popup.openManager')} aria-label={t(language, 'popup.openManager')} onClick={() => void openManager()}>
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
@@ -392,6 +540,20 @@ function App() {
               <p>{t(language, 'popup.resumeIndexHint', { current: context.indexCheckpoint.current, total: context.indexCheckpoint.total })}</p>
             </section>
           ) : null}
+
+          <ServerIndexActions
+            canPull={context.canPullServerIndex === true}
+            canPullReview={context.canPullReviewServerIndex === true}
+            canUpload={context.canUploadServerIndex === true}
+            indexed={context.indexed}
+            language={language}
+            serverBusy={serverBusy}
+            serverError={serverError}
+            serverIndex={context.serverIndex}
+            onPull={() => void pullServerIndex()}
+            onPullReview={() => void pullReviewServerIndex()}
+            onUpload={() => void uploadServerIndex()}
+          />
 
           <button className="primary" type="button" onClick={() => void startIndex()} disabled={indexing}>
             {indexing ? (hasResumeCheckpoint ? t(language, 'popup.resumeIndexingPages') : t(language, 'popup.indexingPages')) : actionLabel}

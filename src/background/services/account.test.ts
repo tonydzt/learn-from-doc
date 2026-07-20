@@ -35,18 +35,27 @@ describe('background account service', () => {
   it('logs in, fetches permissions from the response, and stores the session', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
       accessToken: 'token-1',
+      refreshToken: 'refresh-token-1',
       user: { id: 'user-1', email: 'reader@example.com', name: 'Reader' },
-      permissions: { canSync: true, canPullServerData: true },
+      permissions: { canSync: true, canPullServerData: true, canTestSystemIndexes: true },
+      expiresAt: Date.parse('2026-06-09T00:00:00Z'),
     }), { status: 200 }));
 
     await expect(loginAccountForBackground('reader@example.com', 'secret')).resolves.toEqual({
       accessToken: 'token-1',
+      refreshToken: 'refresh-token-1',
       user: { id: 'user-1', email: 'reader@example.com', name: 'Reader' },
-      permissions: { canSync: true, canPullServerData: true },
+      permissions: { canSync: true, canPullServerData: true, canTestSystemIndexes: true },
+      visiblePermissions: [
+        { key: 'canSync', label: 'Multi-device sync' },
+        { key: 'canPullServerData', label: 'Server data pull' },
+        { key: 'canTestSystemIndexes', label: 'Test system indexes' },
+      ],
+      expiresAt: Date.parse('2026-06-09T00:00:00Z'),
       updatedAt: Date.parse('2026-06-08T00:00:00Z'),
     });
 
-    expect(fetch).toHaveBeenCalledWith('https://learn-from-doc-web.vercel.app/api/auth/login', {
+    expect(fetch).toHaveBeenCalledWith('http://localhost:3000/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'reader@example.com', password: 'secret' }),
@@ -54,8 +63,15 @@ describe('background account service', () => {
     expect(browser.storage.local.set).toHaveBeenCalledWith({
       [ACCOUNT_SESSION_STORAGE_KEY]: {
         accessToken: 'token-1',
+        refreshToken: 'refresh-token-1',
         user: { id: 'user-1', email: 'reader@example.com', name: 'Reader' },
-        permissions: { canSync: true, canPullServerData: true },
+        permissions: { canSync: true, canPullServerData: true, canTestSystemIndexes: true },
+        visiblePermissions: [
+          { key: 'canSync', label: 'Multi-device sync' },
+          { key: 'canPullServerData', label: 'Server data pull' },
+          { key: 'canTestSystemIndexes', label: 'Test system indexes' },
+        ],
+        expiresAt: Date.parse('2026-06-09T00:00:00Z'),
         updatedAt: Date.parse('2026-06-08T00:00:00Z'),
       },
     });
@@ -77,21 +93,28 @@ describe('background account service', () => {
         accessToken: 'token-1',
         user: { id: 'user-1', email: 'reader@example.com', name: 'Reader' },
         permissions: { canSync: false, canPullServerData: false },
+        expiresAt: Date.parse('2026-06-09T00:00:00Z'),
         updatedAt: 1,
       },
     });
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
-      permissions: { canSync: true, canPullServerData: false },
+      permissions: { canSync: true, canPullServerData: false, canTestSystemIndexes: false },
     }), { status: 200 }));
 
     await expect(refreshAccountPermissionsForBackground()).resolves.toEqual({
       accessToken: 'token-1',
       user: { id: 'user-1', email: 'reader@example.com', name: 'Reader' },
-      permissions: { canSync: true, canPullServerData: false },
+      permissions: { canSync: true, canPullServerData: false, canTestSystemIndexes: false },
+      visiblePermissions: [
+        { key: 'canSync', label: 'Multi-device sync' },
+        { key: 'canPullServerData', label: 'Server data pull' },
+        { key: 'canTestSystemIndexes', label: 'Test system indexes' },
+      ],
+      expiresAt: Date.parse('2026-06-09T00:00:00Z'),
       updatedAt: Date.parse('2026-06-08T00:00:00Z'),
     });
 
-    expect(fetch).toHaveBeenCalledWith('https://learn-from-doc-web.vercel.app/api/me/permissions', {
+    expect(fetch).toHaveBeenCalledWith('http://localhost:3000/api/me/permissions', {
       method: 'GET',
       headers: { Authorization: 'Bearer token-1' },
     });
@@ -103,6 +126,7 @@ describe('background account service', () => {
         accessToken: 'token-1',
         user: { id: 'user-1', email: 'reader@example.com' },
         permissions: { canSync: false, canPullServerData: false },
+        expiresAt: Date.parse('2026-06-09T00:00:00Z'),
         updatedAt: 1,
       },
     });
@@ -119,6 +143,7 @@ describe('background account service', () => {
         accessToken: 'token-1',
         user: { id: 'user-1', email: 'reader@example.com' },
         permissions: { canSync: true, canPullServerData: false },
+        expiresAt: Date.parse('2026-06-09T00:00:00Z'),
         updatedAt: 1,
       },
     });
@@ -126,7 +151,12 @@ describe('background account service', () => {
     await expect(getAccountSessionForBackground()).resolves.toEqual({
       accessToken: 'token-1',
       user: { id: 'user-1', email: 'reader@example.com' },
-      permissions: { canSync: true, canPullServerData: false },
+      permissions: { canSync: true, canPullServerData: false, canTestSystemIndexes: false },
+      visiblePermissions: [
+        { key: 'canSync', label: 'Multi-device sync' },
+        { key: 'canPullServerData', label: 'Server data pull' },
+      ],
+      expiresAt: Date.parse('2026-06-09T00:00:00Z'),
       updatedAt: 1,
     });
     await logoutAccountForBackground();

@@ -56,6 +56,21 @@ describe('adapter index', () => {
       scopeKey: 'playwright-docs',
       scopeTitle: 'Playwright Docs',
     });
+    expect(getScopeForUrl('https://playwright.dev/docs/api/class-playwright')).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-docs-api',
+      scopeTitle: 'Playwright API',
+    });
+    expect(getScopeForUrl('https://playwright.dev/python/docs/intro')).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-python-docs',
+      scopeTitle: 'Playwright Python Docs',
+    });
+    expect(getScopeForUrl('https://playwright.dev/mcp/introduction')).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-mcp',
+      scopeTitle: 'Playwright MCP Docs',
+    });
     expect(getScopeForUrl('https://developers.openai.com/codex/quickstart')).toEqual({
       host: 'developers.openai.com',
       scopeKey: 'codex',
@@ -71,6 +86,6 @@ describe('adapter index', () => {
       scopeKey: 'codex',
       scopeTitle: 'OpenAI Codex Docs',
     });
-    expect(getScopeForUrl('https://playwright.dev/python/docs/intro')).toBeNull();
+    expect(getScopeForUrl('https://playwright.dev/python')).toBeNull();
   });
 });

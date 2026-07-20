@@ -1,16 +1,70 @@
 import { PlaywrightDevAdapter } from './playwright-dev';
 
 describe('PlaywrightDevAdapter', () => {
-  it('matches Playwright Node docs paths only', () => {
+  it('matches Playwright documentation scopes', () => {
     expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/docs/intro'))).toBe(true);
     expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/docs'))).toBe(true);
     expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/docs/writing-tests'))).toBe(true);
-    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/python/docs/intro'))).toBe(false);
-    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/mcp/introduction'))).toBe(false);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/docs/api/class-playwright'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/python/docs/intro'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/python/docs/api/class-playwright'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/java/docs/intro'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/java/docs/api/class-playwright'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/dotnet/docs/intro'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/dotnet/docs/api/class-playwright'))).toBe(true);
+    expect(PlaywrightDevAdapter.matches(new URL('https://playwright.dev/mcp/introduction'))).toBe(true);
     expect(PlaywrightDevAdapter.matches(new URL('https://example.com/docs/intro'))).toBe(false);
   });
 
-  it('deduplicates sidebar links within Playwright docs scope', () => {
+  it('returns stable scopes for Playwright documentation trees', () => {
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/docs/intro'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-docs',
+      scopeTitle: 'Playwright Docs',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/docs/api/class-playwright'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-docs-api',
+      scopeTitle: 'Playwright API',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/python/docs/intro'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-python-docs',
+      scopeTitle: 'Playwright Python Docs',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/python/docs/api/class-playwright'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-python-api',
+      scopeTitle: 'Playwright Python API',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/java/docs/intro'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-java-docs',
+      scopeTitle: 'Playwright Java Docs',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/java/docs/api/class-playwright'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-java-api',
+      scopeTitle: 'Playwright Java API',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/dotnet/docs/intro'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-dotnet-docs',
+      scopeTitle: 'Playwright .NET Docs',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/dotnet/docs/api/class-playwright'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-dotnet-api',
+      scopeTitle: 'Playwright .NET API',
+    });
+    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/mcp/introduction'))).toEqual({
+      host: 'playwright.dev',
+      scopeKey: 'playwright-mcp',
+      scopeTitle: 'Playwright MCP Docs',
+    });
+  });
+
+  it('deduplicates sidebar links within the current Playwright docs scope', () => {
     document.body.innerHTML = `
       <aside>
         <nav aria-label="Docs sidebar">
@@ -25,16 +79,30 @@ describe('PlaywrightDevAdapter', () => {
       <main><article>Body</article></main>
     `;
 
-    expect(PlaywrightDevAdapter.getDocScopeForUrl(new URL('https://playwright.dev/docs/intro'))).toEqual({
-      host: 'playwright.dev',
-      scopeKey: 'playwright-docs',
-      scopeTitle: 'Playwright Docs',
-    });
     expect(PlaywrightDevAdapter.getSidebarLinks().map((link) => link.url)).toEqual([
       'https://playwright.dev/docs/intro',
       'https://playwright.dev/docs/writing-tests',
     ]);
     expect(PlaywrightDevAdapter.getSidebarLinks()[0].title).toBe('Installation');
+  });
+
+  it('filters sidebar links to the API reference scope', () => {
+    document.body.innerHTML = `
+      <aside>
+        <nav aria-label="Docs sidebar">
+          <a href="https://playwright.dev/docs/api/class-playwright">Playwright Library</a>
+          <a href="https://playwright.dev/docs/api/class-browser">Browser</a>
+          <a href="https://playwright.dev/docs/intro">Installation</a>
+          <a href="https://playwright.dev/python/docs/api/class-playwright">Python API</a>
+        </nav>
+      </aside>
+      <main><article>Body</article></main>
+    `;
+
+    expect(PlaywrightDevAdapter.getSidebarLinks().map((link) => link.url)).toEqual([
+      'https://playwright.dev/docs/api/class-playwright',
+      'https://playwright.dev/docs/api/class-browser',
+    ]);
   });
 
   it('finds the article root', () => {

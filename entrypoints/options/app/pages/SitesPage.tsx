@@ -3,6 +3,7 @@ import { t } from '../../../../src/i18n/messages';
 import type { LanguageCode } from '../../../../src/settings/app-settings';
 import type { IndexOverview } from '../../../../src/shared/messages';
 import { fmtDate, fmtPercent } from '../format';
+import { groupOverviewsByHost } from '../site-groups';
 
 type SitesPageProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -16,6 +17,8 @@ type SitesPageProps = {
 };
 
 export function SitesPage(props: SitesPageProps) {
+  const sites = groupOverviewsByHost(props.overviews);
+
   return (
     <section className="tables-layout">
       <section className="detail">
@@ -52,25 +55,25 @@ export function SitesPage(props: SitesPageProps) {
           <div className="detail-toolbar">
             <div>
               <h2>{t(props.language, 'manager.sites')}</h2>
-              <p className="muted">{props.overviews.length === 0 ? t(props.language, 'manager.noIndexes') : t(props.language, 'manager.indexesAndRecords')}</p>
+              <p className="muted">{sites.length === 0 ? t(props.language, 'manager.noIndexes') : t(props.language, 'manager.indexesAndRecords')}</p>
             </div>
           </div>
           <div className="site-list">
-            {props.overviews.length === 0 ? (
+            {sites.length === 0 ? (
               <div className="empty">{t(props.language, 'manager.noIndexes')}</div>
-            ) : props.overviews.map((overview) => (
-              <div className="site-list-row" key={overview.site.siteId}>
-                <button className="site-list-main" type="button" onClick={() => props.selectSite(overview.site.siteId)}>
+            ) : sites.map((site) => (
+              <div className="site-list-row" key={site.host}>
+                <button className="site-list-main" type="button" onClick={() => props.selectSite(site.overviews[0]!.site.siteId)}>
                   <span>
-                    <strong>{overview.site.scopeTitle}</strong>
-                    <small>{overview.site.host} · {t(props.language, 'common.updated', { date: fmtDate(overview.updatedAt, props.language) })}</small>
+                    <strong>{site.host}</strong>
+                    <small>{t(props.language, 'manager.scope')}: {site.overviews.length} · {t(props.language, 'common.updated', { date: fmtDate(site.updatedAt, props.language) })}</small>
                   </span>
                   <span className="site-list-metrics">
-                    <small>{t(props.language, 'manager.pages')}: {overview.pageCount}</small>
-                    <small>{t(props.language, 'manager.progress')}: {fmtPercent(overview.totalPercent)}</small>
+                    <small>{t(props.language, 'manager.pages')}: {site.pageCount}</small>
+                    <small>{t(props.language, 'manager.progress')}: {fmtPercent(site.totalPercent)}</small>
                   </span>
                 </button>
-                <button className="ghost" type="button" onClick={() => props.downloadPortableData('site', overview.site.siteId)}>
+                <button className="ghost" type="button" onClick={() => props.downloadPortableData('site', site.overviews[0]!.site.siteId)}>
                   {t(props.language, 'manager.exportSelectedSite')}
                 </button>
               </div>

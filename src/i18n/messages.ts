@@ -51,6 +51,7 @@ export type MessageKey =
   | 'manager.overview'
   | 'manager.sites'
   | 'manager.pages'
+  | 'manager.pagesWithProgress'
   | 'manager.progress'
   | 'manager.scope'
   | 'manager.page'
@@ -81,8 +82,6 @@ export type MessageKey =
   | 'popup.loading'
   | 'popup.openReactDocs'
   | 'popup.unsupportedPage'
-  | 'popup.indexed'
-  | 'popup.new'
   | 'popup.openManager'
   | 'popup.unsupportedDescription'
   | 'popup.detectFramework'
@@ -101,6 +100,14 @@ export type MessageKey =
   | 'popup.indexingPages'
   | 'popup.resumeIndexingPages'
   | 'popup.resumeIndexHint'
+  | 'popup.serverIndexAvailable'
+  | 'popup.pullFromServer'
+  | 'popup.pullingFromServer'
+  | 'popup.pullReviewFromServer'
+  | 'popup.pullingReviewFromServer'
+  | 'popup.uploadToServer'
+  | 'popup.uploadingToServer'
+  | 'popup.confirmPullOverwrite'
   | 'content.docProgress'
   | 'content.subdirectory'
   | 'content.enablePageProgress'
@@ -177,6 +184,7 @@ export const EN_MESSAGES: Messages = {
   'manager.overview': 'Overview',
   'manager.sites': 'Sites',
   'manager.pages': 'Pages',
+  'manager.pagesWithProgress': 'Pages with progress',
   'manager.progress': 'Progress',
   'manager.scope': 'Scope',
   'manager.page': 'Page',
@@ -207,8 +215,6 @@ export const EN_MESSAGES: Messages = {
   'popup.loading': 'Reading map is loading',
   'popup.openReactDocs': 'Open React Docs',
   'popup.unsupportedPage': 'Unsupported page',
-  'popup.indexed': 'Indexed',
-  'popup.new': 'New',
   'popup.openManager': 'Open manager',
   'popup.unsupportedDescription': 'This extension currently supports React Docs, Playwright Docs, and OpenAI Codex Docs.',
   'popup.detectFramework': 'Detect docs framework',
@@ -227,6 +233,14 @@ export const EN_MESSAGES: Messages = {
   'popup.indexingPages': 'Indexing pages...',
   'popup.resumeIndexingPages': 'Resuming index...',
   'popup.resumeIndexHint': 'Resume from {current}/{total} pages indexed before interruption.',
+  'popup.serverIndexAvailable': 'Server index available · {count} pages',
+  'popup.pullFromServer': 'Pull from server',
+  'popup.pullingFromServer': 'Pulling...',
+  'popup.pullReviewFromServer': 'Pull test index from server',
+  'popup.pullingReviewFromServer': 'Pulling test index...',
+  'popup.uploadToServer': 'Upload to server',
+  'popup.uploadingToServer': 'Uploading...',
+  'popup.confirmPullOverwrite': 'Replace the local index for this site with the server copy?',
   'content.docProgress': 'Doc progress',
   'content.subdirectory': 'Subdirectory',
   'content.enablePageProgress': 'Start recording this page',
@@ -287,6 +301,7 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'manager.overview': '概览',
     'manager.sites': '站点',
     'manager.pages': '页面',
+    'manager.pagesWithProgress': '有阅读记录的页面',
     'manager.progress': '进度',
     'manager.scope': '范围',
     'manager.page': '页面',
@@ -316,8 +331,6 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'popup.loading': '阅读地图加载中',
     'popup.openReactDocs': '打开 React 文档',
     'popup.unsupportedPage': '不支持的页面',
-    'popup.indexed': '已索引',
-    'popup.new': '新建',
     'popup.openManager': '打开管理器',
     'popup.unsupportedDescription': '此扩展目前支持 React Docs、Playwright Docs 和 OpenAI Codex Docs。',
     'popup.detectFramework': '检测文档框架',
@@ -336,6 +349,14 @@ const PARTIAL_TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Partial<Messages
     'popup.indexingPages': '正在索引页面...',
     'popup.resumeIndexingPages': '正在继续创建索引...',
     'popup.resumeIndexHint': '将从中断前已完成的 {current}/{total} 页继续。',
+    'popup.serverIndexAvailable': '服务端有索引 · {count} 页',
+    'popup.pullFromServer': '从服务端拉取',
+    'popup.pullingFromServer': '正在拉取...',
+    'popup.pullReviewFromServer': '从服务端拉取测试索引',
+    'popup.pullingReviewFromServer': '正在拉取测试索引...',
+    'popup.uploadToServer': '上传到服务端',
+    'popup.uploadingToServer': '正在上传...',
+    'popup.confirmPullOverwrite': '用服务端副本替换当前站点的本地索引？',
     'content.docProgress': '文档进度',
     'content.subdirectory': '子目录',
     'content.enablePageProgress': '开始记录当前页面',

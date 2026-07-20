@@ -35,7 +35,9 @@ describe('browser storage account session', () => {
     await saveStoredAccountSession({
       accessToken: 'token-1',
       user: { id: 'user-1', email: 'reader@example.com' },
-      permissions: { canSync: true, canPullServerData: false },
+      permissions: { canSync: true, canPullServerData: false, canTestSystemIndexes: true },
+      visiblePermissions: [{ key: 'canTestSystemIndexes', label: 'Test system indexes' }],
+      expiresAt: 2_000_000_000_000,
       updatedAt: 123,
     });
 
@@ -43,7 +45,9 @@ describe('browser storage account session', () => {
       [ACCOUNT_SESSION_STORAGE_KEY]: {
         accessToken: 'token-1',
         user: { id: 'user-1', email: 'reader@example.com' },
-        permissions: { canSync: true, canPullServerData: false },
+        permissions: { canSync: true, canPullServerData: false, canTestSystemIndexes: true },
+        visiblePermissions: [{ key: 'canTestSystemIndexes', label: 'Test system indexes' }],
+        expiresAt: 2_000_000_000_000,
         updatedAt: 123,
       },
     });
