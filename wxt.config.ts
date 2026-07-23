@@ -2,6 +2,12 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
+  dev: {
+    server: {
+      port: 3010,
+      strictPort: true,
+    },
+  },
   outDir: 'output',
   targetBrowsers: ['chrome', 'firefox'],
   manifest: ({ browser }) => ({
