@@ -215,6 +215,8 @@ export async function startIndex(context: BackgroundContext, tabId: number): Pro
     current: 0,
     total: 0,
   });
+  // Docker 等按需授权站点不在 manifest 的静态注入范围内，首次索引前必须先注入源页。
+  await injectContentScript(tabId, 'background:indexing-source');
   const indexLinks = await sendTabMessage<IndexLinksResponse>(tabId, { type: 'COLLECT_INDEX_LINKS' });
 
   if (indexLinks.links.length === 0) throw new Error('No document links found in the current sidebar.');

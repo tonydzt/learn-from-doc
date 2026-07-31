@@ -6,6 +6,7 @@ describe('adapter index', () => {
     expect(getAdapterForUrl('https://playwright.dev/docs/intro')?.id).toBe('playwright-dev');
     expect(getAdapterForUrl('https://developers.openai.com/codex')?.id).toBe('openai-codex');
     expect(getAdapterForUrl('https://developers.openai.com/api/docs')?.id).toBe('openai-codex');
+    expect(getAdapterForUrl('https://developer.mozilla.org/en-US/docs/Web/CSS')?.id).toBe('mdn');
   });
 
   it('prefers site adapters before framework adapters on matching urls', () => {
@@ -85,6 +86,11 @@ describe('adapter index', () => {
       host: 'developers.openai.com',
       scopeKey: 'codex',
       scopeTitle: 'OpenAI Codex Docs',
+    });
+    expect(getScopeForUrl('https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Animations')).toEqual({
+      host: 'developer.mozilla.org',
+      scopeKey: 'mdn-web-css',
+      scopeTitle: 'MDN Web: CSS',
     });
     expect(getScopeForUrl('https://playwright.dev/python')).toBeNull();
   });

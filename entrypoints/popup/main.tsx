@@ -16,6 +16,7 @@ import {
 } from '../../src/settings/account-session';
 import { injectContentScript } from '../../src/shared/content-script-injection';
 import type { IndexCheckpointSummary, PageAdapterContext, RuntimeMessage, ServerIndexAvailabilityMessage, SiteSnapshot, StartIndexResult } from '../../src/shared/messages';
+import { uploadServerIndexes } from '../../src/shared/server-index-upload';
 import { siteIdFor } from '../../src/shared/url';
 import { getCachedServerIndexAvailability, saveCachedServerIndexAvailability } from '../../src/storage/browser-storage/server-index-availability';
 import type { SiteRecord } from '../../src/storage/db';
@@ -432,10 +433,7 @@ function App() {
     setServerBusy(true);
     setServerError(null);
     try {
-      await browser.runtime.sendMessage({
-        type: 'UPLOAD_SERVER_INDEX',
-        siteId,
-      } satisfies RuntimeMessage);
+      await uploadServerIndexes([siteId], (message) => browser.runtime.sendMessage(message));
       await load();
     } catch (error) {
       setServerError(error instanceof Error ? error.message : 'Could not upload server index.');

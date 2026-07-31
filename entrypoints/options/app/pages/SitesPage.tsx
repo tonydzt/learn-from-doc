@@ -14,6 +14,8 @@ type SitesPageProps = {
   importPortableFile(file: File): void;
   selectSite(siteId: string): void;
   setIncludePortableProgress(value: boolean): void;
+  uploadSiteIndexes(siteId: string[]): void;
+  uploadingHost: string | null;
 };
 
 export function SitesPage(props: SitesPageProps) {
@@ -73,9 +75,21 @@ export function SitesPage(props: SitesPageProps) {
                     <small>{t(props.language, 'manager.progress')}: {fmtPercent(site.totalPercent)}</small>
                   </span>
                 </button>
-                <button className="ghost" type="button" onClick={() => props.downloadPortableData('site', site.overviews[0]!.site.siteId)}>
-                  {t(props.language, 'manager.exportSelectedSite')}
-                </button>
+                <div className="site-list-actions">
+                  <button className="ghost" type="button" onClick={() => props.downloadPortableData('site', site.overviews[0]!.site.siteId)}>
+                    {t(props.language, 'manager.exportSelectedSite')}
+                  </button>
+                  <button
+                    className="ghost"
+                    disabled={props.uploadingHost !== null}
+                    type="button"
+                    onClick={() => props.uploadSiteIndexes(site.overviews.map((overview) => overview.site.siteId))}
+                  >
+                    {props.uploadingHost === site.host
+                      ? t(props.language, 'popup.uploadingToServer')
+                      : t(props.language, 'popup.uploadToServer')}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

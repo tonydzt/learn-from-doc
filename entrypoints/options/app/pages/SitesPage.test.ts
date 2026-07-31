@@ -26,6 +26,7 @@ describe('SitesPage', () => {
     const container = document.createElement('div');
     document.body.append(container);
     const selectSite = vi.fn();
+    const uploadSiteIndexes = vi.fn();
     let root: Root;
 
     act(() => {
@@ -43,6 +44,8 @@ describe('SitesPage', () => {
         importPortableFile: vi.fn(),
         selectSite,
         setIncludePortableProgress: vi.fn(),
+        uploadSiteIndexes,
+        uploadingHost: null,
       }));
     });
 
@@ -54,6 +57,13 @@ describe('SitesPage', () => {
       (container.querySelector('.site-list-main') as HTMLButtonElement).click();
     });
     expect(selectSite).toHaveBeenCalledWith('docs');
+
+    act(() => {
+      [...container.querySelectorAll<HTMLButtonElement>('.site-list-actions .ghost')]
+        .find((button) => button.textContent === 'Upload to server')!
+        .click();
+    });
+    expect(uploadSiteIndexes).toHaveBeenCalledWith(['docs', 'api']);
 
     act(() => root.unmount());
   });

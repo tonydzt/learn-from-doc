@@ -27,6 +27,8 @@ export default defineConfig({
       'https://react.dev/*',
       'https://playwright.dev/*',
       'https://developers.openai.com/*',
+      'https://developer.mozilla.org/*',
+      'https://docs.docker.com/*',
       'https://learn-from-doc-web.vercel.app/*',
       'http://localhost:3000/*'
     ],

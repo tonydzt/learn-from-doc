@@ -93,8 +93,9 @@ export function indexMeasurementPayloadForPage(input: {
 export async function runIndexMeasurement() {
   const startedAt = performance.now();
   await afterHydration(INDEXING_HYDRATION_TIMEOUT_MS, INDEXING_IDLE_TIMEOUT_MS);
-  const afterHydrationMs = Math.round(performance.now() - startedAt);
   const adapter = getAdapterForPage(location.href);
+  await adapter?.waitForIndexMeasurement?.();
+  const afterHydrationMs = Math.round(performance.now() - startedAt);
   const indexable = adapter?.isPageIndexable?.() ?? true;
   const article = adapter?.getArticleRoot();
   lfdDebug('indexing measurement page loaded', {

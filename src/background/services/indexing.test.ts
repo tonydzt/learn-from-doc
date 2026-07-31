@@ -112,7 +112,7 @@ describe('background indexing service', () => {
     void indexing.catch(() => undefined);
     await vi.waitFor(() => expect(browser.tabs.create).toHaveBeenCalledOnce());
     await Promise.resolve();
-    const injectedWhileLoading = vi.mocked(injectContentScript).mock.calls.length > 0;
+    const injectedWhileLoading = vi.mocked(injectContentScript).mock.calls.some(([tabId]) => tabId === 41);
 
     if (!injectedWhileLoading) {
       onTabUpdated?.(41, { status: 'complete' }, {
@@ -148,6 +148,7 @@ describe('background indexing service', () => {
 
     const indexing = startIndex(context, 7);
     void indexing.catch(() => undefined);
+    await vi.waitFor(() => expect(injectContentScript).toHaveBeenCalledWith(7, 'background:indexing-source'));
     await vi.waitFor(() => expect(browser.tabs.create).toHaveBeenCalledTimes(1));
     resolveMeasurement(context, 40, twoPageLinks[0].url, 'Intro', 100);
     await vi.waitFor(() => expect(browser.tabs.create).toHaveBeenCalledTimes(2));
@@ -253,6 +254,7 @@ describe('background indexing service', () => {
     mockCreatedTabs();
     vi.mocked(getSite).mockResolvedValue(undefined);
     vi.mocked(injectContentScript)
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('Could not inject script.'));
     const context = createBackgroundContext();

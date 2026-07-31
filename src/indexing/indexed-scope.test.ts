@@ -35,4 +35,16 @@ describe('indexedScopeForUrl', () => {
     expect(indexedScopeForUrl('https://docs.sillytavern.app/installation/windows/', sites)?.siteId).toBe('docs.sillytavern.app::root');
     expect(indexedScopeForUrl('https://example.com/usage/', sites)).toBeNull();
   });
+
+  it('uses an adapter-specific indexed scope matcher when available', () => {
+    const sites = [site('docs.docker.com', 'docker-manuals')];
+
+    expect(indexedScopeForUrl('https://docs.docker.com/desktop/install/mac-install/', sites)?.siteId)
+      .toBe('docs.docker.com::docker-manuals');
+    expect(indexedScopeForUrl('https://docs.docker.com/engine/storage/', sites)?.siteId)
+      .toBe('docs.docker.com::docker-manuals');
+    expect(indexedScopeForUrl('https://docs.docker.com/support/', sites)?.siteId)
+      .toBe('docs.docker.com::docker-manuals');
+    expect(indexedScopeForUrl('https://docs.docker.com/guides/nodejs/', sites)).toBeNull();
+  });
 });

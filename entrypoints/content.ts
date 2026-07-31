@@ -47,6 +47,8 @@ export default defineContentScript({
     'https://react.dev/*',
     'https://playwright.dev/*',
     'https://developers.openai.com/*',
+    'https://developer.mozilla.org/*',
+    'https://docs.docker.com/*',
   ],
   runAt: 'document_end',
   async main(ctx) {

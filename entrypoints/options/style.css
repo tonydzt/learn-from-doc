@@ -348,6 +348,13 @@ h2 {
   background: rgba(248, 250, 252, .72);
 }
 
+.site-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .site-list-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

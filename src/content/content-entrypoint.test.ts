@@ -97,6 +97,12 @@ describe('content script lifecycle', () => {
     vi.useRealTimers();
   });
 
+  it('statically injects on Docker Docs', async () => {
+    const { default: contentScript } = await import('../../entrypoints/content');
+
+    expect(contentScript.matches).toContain('https://docs.docker.com/*');
+  });
+
   it('does nothing when a content script is already ready for this document', async () => {
     document.documentElement.setAttribute(CONTENT_SCRIPT_READY_ATTR, 'true');
     const { runReadingTracker } = await import('./reading-tracker');

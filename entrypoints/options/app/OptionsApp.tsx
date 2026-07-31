@@ -12,6 +12,7 @@ import type {
   RuntimeMessage,
   SiteSnapshot,
 } from '../../../src/shared/messages';
+import { uploadServerIndexes } from '../../../src/shared/server-index-upload';
 import { parsePortableData, portableSerializedBlobPart } from '../../../src/storage/portable-data';
 import { OptionsShell } from './components/OptionsShell';
 import type { DetailTab, ManagerState, PageKey } from './types';
@@ -29,6 +30,7 @@ export function OptionsApp() {
   const [includePortableProgress, setIncludePortableProgress] = React.useState(false);
   const [accountBusy, setAccountBusy] = React.useState(false);
   const [accountError, setAccountError] = React.useState<string | null>(null);
+  const [uploadingHost, setUploadingHost] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async (
@@ -200,6 +202,21 @@ export function OptionsApp() {
     }
   };
 
+  const uploadSiteIndexes = async (siteIds: string[]) => {
+    if (state.status !== 'ready' || siteIds.length === 0 || uploadingHost !== null) return;
+    const host = state.overviews.find((overview) => overview.site.siteId === siteIds[0])?.site.host;
+    if (!host) return;
+    setUploadingHost(host);
+    try {
+      await uploadServerIndexes(siteIds, (message) => browser.runtime.sendMessage(message));
+      await load(state.selected?.site.siteId, state.page, state.detailTab);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not upload server index.');
+    } finally {
+      setUploadingHost(null);
+    }
+  };
+
   const importPortableFile = async (file: File) => {
     if (state.status !== 'ready') return;
     try {
@@ -286,6 +303,8 @@ export function OptionsApp() {
           importPortableFile={(file) => void importPortableFile(file)}
           selectSite={(siteId) => void selectSite(siteId)}
           setIncludePortableProgress={setIncludePortableProgress}
+          uploadSiteIndexes={(siteIds) => void uploadSiteIndexes(siteIds)}
+          uploadingHost={uploadingHost}
         />
       ) : (
         <SiteDetailPage
