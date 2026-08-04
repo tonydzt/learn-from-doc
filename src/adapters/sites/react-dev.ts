@@ -24,36 +24,50 @@ function sidebarRoot(): Element | null {
   return firstElement(SIDEBAR_SELECTORS);
 }
 
-// 判断当前路径是否属于本插件首版支持的 React 文档范围。
+type ReactScope = Pick<DocScope, 'scopeKey' | 'scopeTitle'> & { pathPrefix: string };
+
+const REACT_SCOPES: ReactScope[] = [
+  { pathPrefix: '/learn', scopeKey: 'learn', scopeTitle: 'Learn React' },
+  // 保留已有 key，重建时会直接覆盖旧的、不完整的 React Reference 索引。
+  { pathPrefix: '/reference', scopeKey: 'reference-react', scopeTitle: 'React Reference' },
+  { pathPrefix: '/community', scopeKey: 'community', scopeTitle: 'React Community' },
+  { pathPrefix: '/blog', scopeKey: 'blog', scopeTitle: 'React Blog' },
+];
+
+function isPathWithin(pathname: string, pathPrefix: string): boolean {
+  return pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`);
+}
+
+// 判断当前路径是否属于本站支持的四个一级范围。
 function isReactDocPath(pathname: string): boolean {
-  return pathname === '/learn'
-    || pathname.startsWith('/learn/')
-    || pathname === '/reference/react'
-    || pathname.startsWith('/reference/react/');
+  return REACT_SCOPES.some((scope) => isPathWithin(pathname, scope.pathPrefix));
 }
 
 // 把 URL 路径归类到一个文档范围。
-// scopeKey 会参与 siteId 生成，用来区分 Learn React 和 React Reference 两棵目录。
+// scopeKey 会参与 siteId 生成，用来区分四棵一级目录。
 function scopeFromPath(pathname: string): Pick<DocScope, 'scopeKey' | 'scopeTitle'> | null {
-  if (pathname === '/learn' || pathname.startsWith('/learn/')) {
-    return { scopeKey: 'learn', scopeTitle: 'Learn React' };
-  }
-  if (pathname === '/reference/react' || pathname.startsWith('/reference/react/')) {
-    return { scopeKey: 'reference-react', scopeTitle: 'React Reference' };
-  }
-  return null;
+  const scope = REACT_SCOPES.find((candidate) => isPathWithin(pathname, candidate.pathPrefix));
+  return scope ? { scopeKey: scope.scopeKey, scopeTitle: scope.scopeTitle } : null;
 }
 
-// 判断某个链接是否仍在当前文档范围内，避免 Learn 和 Reference 的页面互相混入索引。
+// 判断某个链接是否仍在当前一级范围内，避免四个 scope 互相混入索引。
 function isInScope(url: URL, scopeKey: string): boolean {
-  if (scopeKey === 'learn') return url.pathname === '/learn' || url.pathname.startsWith('/learn/');
-  if (scopeKey === 'reference-react') return url.pathname === '/reference/react' || url.pathname.startsWith('/reference/react/');
-  return false;
+  const scope = REACT_SCOPES.find((candidate) => candidate.scopeKey === scopeKey);
+  return scope ? isPathWithin(url.pathname, scope.pathPrefix) : false;
+}
+
+// Blog 没有文档侧栏，索引链接直接位于文章列表；其他 scope 均使用左侧导航。
+function indexLinksRoot(scopeKey: string): Element | null {
+  if (scopeKey === 'blog') {
+    return firstElement(['main article', 'article', 'main']);
+  }
+  return sidebarRoot();
 }
 
 // 从导航链接 DOM 中提取稳定标题；如果文本为空，就回退到 href。
 function linkTitle(anchor: HTMLAnchorElement): string {
-  return (anchor.textContent ?? '').replace(/\s+/g, ' ').trim() || anchor.href;
+  const heading = anchor.querySelector<HTMLElement>('h2, h3');
+  return (heading?.textContent ?? anchor.textContent ?? '').replace(/\s+/g, ' ').trim() || anchor.href;
 }
 
 export const ReactDevAdapter: DocSiteAdapter = {
@@ -100,8 +114,8 @@ export const ReactDevAdapter: DocSiteAdapter = {
 
   // 收集当前文档范围内的左侧导航链接，并按规范化 URL 去重。
   getSidebarLinks() {
-    const root = sidebarRoot();
     const scope = this.getDocScope();
+    const root = scope ? indexLinksRoot(scope.scopeKey) : null;
     if (!root || !scope) return [];
 
     const links = Array.from(root.querySelectorAll<HTMLAnchorElement>('a[href]'));

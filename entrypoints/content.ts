@@ -49,6 +49,7 @@ export default defineContentScript({
     'https://developers.openai.com/*',
     'https://developer.mozilla.org/*',
     'https://docs.docker.com/*',
+    'https://docs.github.com/*',
   ],
   runAt: 'document_end',
   async main(ctx) {

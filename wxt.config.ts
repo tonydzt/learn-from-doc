@@ -29,6 +29,7 @@ export default defineConfig({
       'https://developers.openai.com/*',
       'https://developer.mozilla.org/*',
       'https://docs.docker.com/*',
+      'https://docs.github.com/*',
       'https://learn-from-doc-web.vercel.app/*',
       'http://localhost:3000/*'
     ],

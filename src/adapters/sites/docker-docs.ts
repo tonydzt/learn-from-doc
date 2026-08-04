@@ -1,5 +1,6 @@
 import { normalizePageUrl } from '../../shared/url';
 import type { DocScope, DocSiteAdapter, ProgressInsertionTargets, SidebarLink } from '../types';
+import { waitForArticleImages } from '../wait-for-article-images';
 
 type DockerScope = {
   pathPrefixes: string[];
@@ -54,14 +55,6 @@ function guidesOverviewLink(): HTMLAnchorElement | null {
   const currentUrl = normalizePageUrl(location.href);
   return Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'))
     .find((anchor) => normalizePageUrl(new URL(anchor.href, location.href).toString()) === currentUrl) ?? null;
-}
-
-function waitForImage(image: HTMLImageElement): Promise<void> {
-  if (image.complete) return Promise.resolve();
-  return new Promise((resolve) => {
-    image.addEventListener('load', () => resolve(), { once: true });
-    image.addEventListener('error', () => resolve(), { once: true });
-  });
 }
 
 export const DockerDocsAdapter: DocSiteAdapter = {
@@ -130,20 +123,7 @@ export const DockerDocsAdapter: DocSiteAdapter = {
   },
 
   async waitForIndexMeasurement() {
-    const article = this.getArticleRoot();
-    if (!article) return;
-
-    const images = Array.from(article.querySelectorAll<HTMLImageElement>('img'));
-    images.forEach((image) => {
-      if (image.loading === 'lazy') image.loading = 'eager';
-    });
-    const pendingImages = images.filter((image) => !image.complete);
-    if (pendingImages.length === 0) return;
-
-    await Promise.race([
-      Promise.all(pendingImages.map(waitForImage)),
-      new Promise((resolve) => window.setTimeout(resolve, 5000)),
-    ]);
+    await waitForArticleImages(this.getArticleRoot());
   },
 
   isPageIndexable() {

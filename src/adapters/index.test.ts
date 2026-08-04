@@ -52,6 +52,21 @@ describe('adapter index', () => {
       scopeKey: 'reference-react',
       scopeTitle: 'React Reference',
     });
+    expect(getScopeForUrl('https://react.dev/reference/react-dom/client/createRoot')).toEqual({
+      host: 'react.dev',
+      scopeKey: 'reference-react',
+      scopeTitle: 'React Reference',
+    });
+    expect(getScopeForUrl('https://react.dev/community/team')).toEqual({
+      host: 'react.dev',
+      scopeKey: 'community',
+      scopeTitle: 'React Community',
+    });
+    expect(getScopeForUrl('https://react.dev/blog/2026/02/24/the-react-foundation')).toEqual({
+      host: 'react.dev',
+      scopeKey: 'blog',
+      scopeTitle: 'React Blog',
+    });
     expect(getScopeForUrl('https://playwright.dev/docs/intro')).toEqual({
       host: 'playwright.dev',
       scopeKey: 'playwright-docs',
