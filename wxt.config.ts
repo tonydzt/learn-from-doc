@@ -10,19 +10,23 @@ export default defineConfig({
   },
   outDir: 'output',
   targetBrowsers: ['chrome', 'firefox'],
-  manifest: ({ browser }) => ({
+  manifest: ({ browser, mode }) => ({
     name: 'Developer Docs Progress Tracker',
     description: 'Save and restore reading progress on developer documentation and long technical pages.',
-    version: '0.2.0',
+    version: '0.3.0',
     permissions: ['activeTab', 'tabs', 'storage', 'scripting'],
-    commands: {
-      _execute_action: {
-        suggested_key: {
-          default: 'Ctrl+Shift+L',
-          mac: 'Command+Shift+L',
-        },
-      },
-    },
+    ...(mode === 'development'
+      ? {
+          commands: {
+            _execute_action: {
+              suggested_key: {
+                default: 'Ctrl+Shift+L',
+                mac: 'Command+Shift+L',
+              },
+            },
+          },
+        }
+      : {}),
     host_permissions: [
       'https://react.dev/*',
       'https://playwright.dev/*',
@@ -31,7 +35,7 @@ export default defineConfig({
       'https://docs.docker.com/*',
       'https://docs.github.com/*',
       'https://learn-from-doc-web.vercel.app/*',
-      'http://localhost:3000/*'
+      ...(mode === 'development' ? ['http://localhost:3000/*'] : []),
     ],
     optional_host_permissions: [
       'https://*/*',
@@ -42,8 +46,15 @@ export default defineConfig({
           browser_specific_settings: {
             gecko: {
               id: '{4bf5ca62-3a2b-467d-b915-2087fbdf8a51}',
+              strict_min_version: '140.0',
               data_collection_permissions: {
-                required: ['none'],
+                required: [
+                  'authenticationInfo',
+                  'personallyIdentifyingInfo',
+                  'browsingActivity',
+                  'websiteActivity',
+                  'websiteContent',
+                ],
               },
             },
           },

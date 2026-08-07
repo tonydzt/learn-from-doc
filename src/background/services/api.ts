@@ -1,2 +1,3 @@
-// const API_ORIGIN = 'https://learn-from-doc-web.vercel.app';
-export const API_ORIGIN = 'http://localhost:3000';
+export const API_ORIGIN = import.meta.env.DEV
+  ? 'http://localhost:3000'
+  : 'https://learn-from-doc-web.vercel.app';
